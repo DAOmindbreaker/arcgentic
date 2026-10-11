@@ -1,0 +1,2273 @@
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useReadContract, useReadContracts, useAccount, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { erc20Abi, parseUnits } from 'viem';
+import type { EIP1193Provider } from 'viem';
+import { ConnectKitButton } from 'connectkit';
+import { AppKit } from '@circle-fin/app-kit';
+import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2';
+import { toast } from 'sonner';
+import {
+  Bot, ShieldAlert, TrendingUp, Activity, Play, Pause,
+  DollarSign, Clock, CheckCircle2, AlertTriangle,
+  Copy, ExternalLink, RefreshCw, Layers, ArrowUpRight,
+  Lock, Zap, ArrowDownUp, GitBranch,
+  ArrowRight, Loader2, Wallet, Settings, Send, AlertCircle, History,
+  Sun, Moon,
+} from 'lucide-react';
+import { TokenUSDC } from '@web3icons/react';
+import { Amount, formatUsdc } from '@/onchain-money';
+import { getUsdc, requireChain, buildTxExplorerUrl } from '@/onchain-facts';
+import { TxHistoryDrawer, useTxHistory } from '@/components/TxHistory';
+import SwapCard from '@/components/SwapCard';
+import type { TxRecord } from '@/components/TxHistory';
+import { EcosystemSection } from '@/components/EcosystemFooter';
+
+// ── AppKit instance (keyless — no kitKey in browser) ──────────────────────────
+const appKit = new AppKit();
+
+// ── Contract config ────────────────────────────────────────────────────────────
+const CHAIN_ID = 5042; // Arc Mainnet
+const VAULT_ADDRESS = '0x02793cfd3a14f341da0768bea80a61b32b9a94a0' as const;
+const chain = requireChain(CHAIN_ID);
+const usdcFact = getUsdc(CHAIN_ID)!;
+const USDC_ADDRESS = usdcFact.address;
+
+const VAULT_ABI = [
+  { name: 'owner',              type: 'function', stateMutability: 'view',       inputs: [],                                        outputs: [{ type: 'address' }] },
+  { name: 'aiAgent',            type: 'function', stateMutability: 'view',       inputs: [],                                        outputs: [{ type: 'address' }] },
+  { name: 'dailyLimit',         type: 'function', stateMutability: 'view',       inputs: [],                                        outputs: [{ type: 'uint256' }] },
+  { name: 'spentToday',         type: 'function', stateMutability: 'view',       inputs: [],                                        outputs: [{ type: 'uint256' }] },
+  { name: 'lastResetTimestamp', type: 'function', stateMutability: 'view',       inputs: [],                                        outputs: [{ type: 'uint256' }] },
+  { name: 'usdcToken',          type: 'function', stateMutability: 'view',       inputs: [],                                        outputs: [{ type: 'address' }] },
+  { name: 'updateDailyLimit',     type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'newLimit',   type: 'uint256' }],                                                  outputs: [] },
+  { name: 'updateAgent',          type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'newAgent',   type: 'address' }],                                                  outputs: [] },
+  { name: 'emergencyWithdrawAll', type: 'function', stateMutability: 'nonpayable', inputs: [],                                                                                          outputs: [] },
+  { name: 'setAllowedProtocol',   type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'protocol',   type: 'address' }, { name: 'allowed', type: 'bool' }],               outputs: [] },
+  { name: 'allowedProtocols',     type: 'function', stateMutability: 'view',       inputs: [{ name: 'protocol',   type: 'address' }],                                                  outputs: [{ type: 'bool' }] },
+  { name: 'executeStrategy',      type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'targetProtocol', type: 'address' }, { name: 'amount', type: 'uint256' }, { name: 'data', type: 'bytes' }, { name: 'strategyType', type: 'string' }], outputs: [] },
+] as const;
+
+// ── Arc Mainnet token registry ─────────────────────────────────────────────────
+// All tokens available for Swap, Send, and balance display.
+// Arc USDC is ERC-20 at 0x3600…0000 (6 decimals). EURC is Circle's Euro Coin (6 decimals).
+// cirBTC is Circle's canonical BTC token on Arc (8 decimals).
+export const ARC_TOKENS = [
+  {
+    symbol: 'USDC',  label: 'USD Coin',        desc: 'Arc Mainnet Native USDC',
+    address: '0x3600000000000000000000000000000000000000' as const,
+    decimals: 6,  color: '#2775CA', abbr: 'UC',
+  },
+  {
+    symbol: 'EURC',  label: 'Euro Coin',        desc: 'Circle Euro Coin on Arc',
+    address: '0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1' as const,
+    decimals: 6,  color: '#3D5AFE', abbr: 'EC',
+  },
+  {
+    symbol: 'cirBTC', label: 'Circle BTC',      desc: 'Circle Wrapped Bitcoin',
+    address: '0x29f2D40B0605204364af54EC677bD022dA425d03' as const,
+    decimals: 8,  color: '#F7931A', abbr: 'cB',
+  },
+  {
+    symbol: 'WETH',  label: 'Wrapped Ether',    desc: 'Wrapped ETH on Arc',
+    address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14' as const,
+    decimals: 18, color: '#627EEA', abbr: 'WE',
+  },
+  {
+    symbol: 'USDT',  label: 'Tether USD',       desc: 'Tether USD on Arc',
+    address: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06' as const,
+    decimals: 6,  color: '#26A17B', abbr: 'UT',
+  },
+] as const;
+type ArcTokenSymbol = (typeof ARC_TOKENS)[number]['symbol'];
+function getToken(sym: ArcTokenSymbol) { return ARC_TOKENS.find(t => t.symbol === sym)!; }
+
+// Send-eligible tokens (USDC + Circle-issued)
+const SENDABLE_TOKENS = ARC_TOKENS.filter(t => ['USDC','EURC','cirBTC'].includes(t.symbol));
+
+// ── Swap tokens (on Arc_Testnet, avoid USDC↔NATIVE — same asset) ─────────────
+// Both sides are now selectable. Exclude USDC↔USDC pair.
+const SWAP_TOKEN_META = ARC_TOKENS;
+type SwapToken = ArcTokenSymbol;
+
+
+// ── Bridge destinations (CCTP-supported mainnets) ─────────────────────────────
+const BRIDGE_CHAINS = [
+  { id: 'Ethereum',  label: 'Ethereum',     chainId: 1     },
+  { id: 'Base',      label: 'Base',         chainId: 8453  },
+  { id: 'Arbitrum',  label: 'Arbitrum One', chainId: 42161 },
+  { id: 'Optimism',  label: 'OP Mainnet',   chainId: 10    },
+] as const;
+type BridgeChainId = (typeof BRIDGE_CHAINS)[number]['id'];
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function fmtAddr(addr: string) { return `${addr.slice(0, 6)}...${addr.slice(-4)}`; }
+
+/** Parse a user-entered USDC amount string → bigint, or null if invalid/non-positive. */
+function parseUsdcInput(value: string, decimals: number): bigint | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const num = Number(trimmed);
+  if (!isFinite(num) || num <= 0) return null;
+  try {
+    return parseUnits(trimmed, decimals);
+  } catch {
+    return null;
+  }
+}
+
+/** True when rawAmount (bigint) exceeds the wallet balance (also bigint). */
+function exceedsBalance(rawAmount: bigint, balance: bigint): boolean {
+  return rawAmount > balance;
+}
+
+function fmtUsdc(raw: bigint | undefined): string {
+  if (raw === undefined) return '—';
+  return formatUsdc(raw);
+}
+
+function fmtTimestamp(ts: bigint | undefined): string {
+  if (!ts) return '—';
+  const next = new Date(Number(ts) * 1000 + 86400000);
+  return next.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ── Lerped number hook ─────────────────────────────────────────────────────────
+function useLerpedNumber(target: number | null, speed = 0.14) {
+  const [display, setDisplay] = useState(target ?? 0);
+  const ref = useRef(target ?? 0);
+  useEffect(() => {
+    if (target == null) return;
+    let raf = 0;
+    const tick = () => {
+      ref.current += (target - ref.current) * speed;
+      if (Math.abs(target - ref.current) < 0.001) ref.current = target;
+      setDisplay(ref.current);
+      if (ref.current !== target) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, speed]);
+  return display;
+}
+
+// ── Theme hook ─────────────────────────────────────────────────────────────────
+function useTheme() {
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    const stored = localStorage.getItem('arcgentic-theme');
+    if (stored) return stored === 'dark';
+    return true; // default dark
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', !isDark);
+    localStorage.setItem('arcgentic-theme', isDark ? 'dark' : 'light');
+  }, [isDark]);
+  return { isDark, toggle: () => setIsDark(d => !d) };
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+function BudgetBar({ spent, limit }: { spent: bigint; limit: bigint }) {
+  const pct = limit === 0n ? 0 : Number((spent * 10000n) / limit) / 100;
+  const color = pct >= 90 ? 'bg-[var(--danger)]' : pct >= 60 ? 'bg-[var(--warning)]' : 'bg-[var(--success)]';
+  return (
+    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+      <div
+        className={`h-full rounded-full transition-all duration-700 ${color}`}
+        style={{ width: `${Math.min(pct, 100)}%`, boxShadow: pct >= 90 ? 'var(--glow-danger)' : pct < 60 ? 'var(--glow-green)' : 'none' }}
+      />
+    </div>
+  );
+}
+
+type GlowColor = 'cyan' | 'purple' | 'green' | 'amber';
+// ArcGentic palette mapping — emerald=primary, violet=secondary
+const CARD_BORDER: Record<GlowColor, string> = {
+  cyan:   'border-[rgba(16,185,129,0.22)]  shadow-[0_2px_24px_rgba(16,185,129,0.07)]',
+  purple: 'border-[rgba(99,102,241,0.22)]   shadow-[0_2px_24px_rgba(99,102,241,0.08)]',
+  green:  'border-[rgba(16,185,129,0.22)]  shadow-[0_2px_24px_rgba(16,185,129,0.07)]',
+  amber:  'border-[rgba(245,158,11,0.22)]   shadow-[0_2px_24px_rgba(245,158,11,0.08)]',
+};
+const CARD_ICON: Record<GlowColor, string> = {
+  cyan:   'bg-[rgba(16,185,129,0.10)] border-[rgba(16,185,129,0.22)] text-[#34d399]',
+  purple: 'bg-[rgba(99,102,241,0.10)]  border-[rgba(99,102,241,0.22)]  text-[#a5b4fc]',
+  green:  'bg-[rgba(16,185,129,0.10)] border-[rgba(16,185,129,0.22)] text-[#34d399]',
+  amber:  'bg-[rgba(245,158,11,0.10)]  border-[rgba(245,158,11,0.22)]  text-[#fcd34d]',
+};
+const CARD_TOP: Record<GlowColor, string> = {
+  cyan:   'ag-card',
+  purple: 'ag-card ag-card-violet',
+  green:  'ag-card',
+  amber:  'ag-card ag-card-amber',
+};
+
+function GlowStatCard({ label, value, sub, icon: Icon, glow = 'cyan', onClick, editContent }: {
+  label: string; value: string; sub?: string; icon: React.ElementType; glow?: GlowColor;
+  onClick?: () => void; editContent?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`${CARD_TOP[glow]} p-5 flex flex-col gap-2.5 transition-all strat-card ${CARD_BORDER[glow]} ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-[0.10em] text-[var(--subtle)] syne">{label}</span>
+        <div className={`p-1.5 rounded-lg border ${CARD_ICON[glow]}`}>
+          <Icon className="w-3.5 h-3.5" />
+        </div>
+      </div>
+      <p className="display text-[1.65rem] font-bold text-[var(--ink)] tabular leading-none">{value}</p>
+      {sub && <p className="text-[11px] text-[var(--subtle)] mt-0.5">{sub}</p>}
+      {editContent}
+    </div>
+  );
+}
+
+// ── Allocation ring (pure SVG, no library) ─────────────────────────────────────
+function AllocationRing({ strategies, weightedApy }: {
+  strategies: typeof STRATEGIES; weightedApy: string;
+}) {
+  const total = strategies.reduce((a, s) => a + s.allocated, 0);
+  if (total === 0) return null;
+  const cx = 60; const cy = 60; const r = 44; const stroke = 10;
+  const circ = 2 * Math.PI * r;
+  const COLORS = ['#FC72FF', '#10b981', '#6366f1'];
+  const arcs = strategies.reduce<{ dash: number; offset: number; color: string }[]>((acc, s, i) => {
+    const share = s.allocated / total;
+    const dash = share * circ;
+    const prevOffset = acc.length > 0 ? acc[acc.length - 1].offset + acc[acc.length - 1].dash : 0;
+    return [...acc, { dash, offset: prevOffset, color: COLORS[i % COLORS.length] }];
+  }, []);
+  return (
+    <div className="flex items-center gap-6 flex-wrap">
+      <div className="relative shrink-0">
+        <svg width={120} height={120} viewBox="0 0 120 120" className="rotate-[-90deg]">
+          {/* Track */}
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={stroke} />
+          {/* Segments */}
+          {arcs.map((arc, i) => (
+            <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+              stroke={arc.color} strokeWidth={stroke} strokeLinecap="round"
+              strokeDasharray={`${arc.dash - 1.5} ${circ - arc.dash + 1.5}`}
+              strokeDashoffset={-(arc.offset)}
+              style={{ filter: `drop-shadow(0 0 6px ${arc.color}88)` }}
+            />
+          ))}
+        </svg>
+        {/* Center label */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="display text-lg font-bold tabular text-[var(--ink)] leading-none">{weightedApy}%</span>
+          <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--subtle)] mt-0.5">APY</span>
+        </div>
+      </div>
+      {/* Legend */}
+      <div className="flex-1 space-y-2.5 min-w-0">
+        {strategies.map((s, i) => {
+          const share = total > 0 ? ((s.allocated / total) * 100).toFixed(1) : '0';
+          return (
+            <div key={s.id} className="flex items-center gap-2.5">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length], boxShadow: `0 0 6px ${COLORS[i % COLORS.length]}88` }} />
+              <span className="text-[11px] text-[var(--ink-2)] truncate flex-1 min-w-0">{s.name}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="mono text-[10px] text-[var(--subtle)]">{share}%</span>
+                <span className="text-[10px] font-bold text-[var(--success)]">{s.apy}%</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Quick action card ──────────────────────────────────────────────────────────
+const QA_STYLES: Record<GlowColor, { wrap: string; icon: string; dot: string }> = {
+  cyan:   { wrap: 'border-[rgba(16,185,129,0.22)] hover:border-[rgba(16,185,129,0.50)] hover:shadow-[0_6px_28px_rgba(16,185,129,0.12)]', icon: 'bg-[rgba(16,185,129,0.12)] border-[rgba(16,185,129,0.25)] text-[#34d399]', dot: 'bg-[#10b981]' },
+  purple: { wrap: 'border-[rgba(99,102,241,0.22)]  hover:border-[rgba(99,102,241,0.50)]  hover:shadow-[0_6px_28px_rgba(99,102,241,0.12)]',  icon: 'bg-[rgba(99,102,241,0.12)]  border-[rgba(99,102,241,0.25)]  text-[#a5b4fc]',  dot: 'bg-[#6366f1]'  },
+  green:  { wrap: 'border-[rgba(16,185,129,0.22)] hover:border-[rgba(16,185,129,0.50)] hover:shadow-[0_6px_28px_rgba(16,185,129,0.12)]', icon: 'bg-[rgba(16,185,129,0.12)] border-[rgba(16,185,129,0.25)] text-[#34d399]', dot: 'bg-[#10b981]' },
+  amber:  { wrap: 'border-[rgba(245,158,11,0.22)]  hover:border-[rgba(245,158,11,0.50)]  hover:shadow-[0_6px_28px_rgba(245,158,11,0.12)]',  icon: 'bg-[rgba(245,158,11,0.12)]  border-[rgba(245,158,11,0.25)]  text-[#fcd34d]',  dot: 'bg-[#f59e0b]'  },
+};
+
+function QuickActionCard({ icon: Icon, label, desc, color, onClick }: {
+  icon: React.ElementType; label: string; desc: string; color: GlowColor; onClick: () => void;
+}) {
+  const s = QA_STYLES[color];
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 min-w-[100px] ag-card p-4 flex flex-col gap-3 transition-all text-left group border ${s.wrap}`}
+    >
+      <div className={`p-2.5 rounded-xl border w-fit ${s.icon} group-hover:scale-110 transition-transform`}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div>
+        <p className="syne text-[13px] font-bold text-[var(--ink)]">{label}</p>
+        <p className="text-[10px] text-[var(--subtle)] mt-0.5">{desc}</p>
+      </div>
+    </button>
+  );
+}
+
+// ── Lerped balance display ─────────────────────────────────────────────────────
+function LerpedBalance({ raw, loading, decimals }: { raw: bigint | undefined; loading: boolean; decimals: number }) {
+  const numeric = raw !== undefined ? Number(raw) / Math.pow(10, decimals) : null;
+  const lerped = useLerpedNumber(numeric);
+  if (loading) return <span className="inline-block w-52 h-12 rounded-xl bg-white/10 animate-pulse" />;
+  if (raw === undefined) return <p className="display text-5xl font-bold text-[var(--ink)] tabular">—</p>;
+  return (
+    <p className="display text-5xl font-bold text-[var(--ink)] tabular leading-none"
+      style={{ textShadow: '0 0 48px rgba(16,185,129,0.22), 0 0 12px rgba(16,185,129,0.12)' }}>
+      ${lerped.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+    </p>
+  );
+}
+
+function AddressRow({ label, value }: { label: string; value: string | undefined }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
+  function copy() {
+    void navigator.clipboard?.writeText(value!);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-[var(--border)] last:border-0">
+      <span className="text-[11px] text-[var(--subtle)]">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className="mono text-[11px] text-[var(--ink-2)]">{fmtAddr(value)}</span>
+        <button onClick={copy} className="p-1 rounded hover:bg-white/10 transition-colors" title="Copy">
+          {copied
+            ? <CheckCircle2 className="w-3 h-3 text-[var(--success)]" />
+            : <Copy className="w-3 h-3 text-[var(--subtle)]" />}
+        </button>
+        <a href={`${chain.explorerBase}/address/${value}`} target="_blank" rel="noopener noreferrer"
+          className="p-1 rounded hover:bg-white/10 transition-colors" title="Explorer">
+          <ExternalLink className="w-3 h-3 text-[var(--subtle)]" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ── Input field used in Swap + Bridge ─────────────────────────────────────────
+function AmountInput({ value, onChange, label, placeholder = '0.00' }: {
+  value: string; onChange: (v: string) => void; label: string; placeholder?: string;
+}) {
+  return (
+    <div className="ag-input p-4">
+      <label className="text-[10px] font-bold uppercase tracking-[0.10em] text-[var(--subtle)] syne block mb-2">{label}</label>
+      <input
+        type="number"
+        min="0"
+        step="any"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-transparent display text-2xl font-bold text-[var(--ink)] placeholder-white/15 focus:outline-none tabular"
+      />
+    </div>
+  );
+}
+
+
+function StatusBadge({ ok }: { ok: boolean }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+      ok ? 'bg-emerald-950/50 text-emerald-400 border-emerald-800/40'
+         : 'bg-amber-950/50 text-amber-400 border-amber-800/40'
+    }`}>
+      <span className={`w-1 h-1 rounded-full ${ok ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+      {ok ? 'ACTIVE' : 'DISABLED'}
+    </span>
+  );
+}
+
+// ── Strategies ─────────────────────────────────────────────────────────────────
+// Protocol addresses below are PLACEHOLDER addresses for Arc Mainnet.
+// The owner must deploy real protocol adapters and call setAllowedProtocol before
+// executeStrategy will succeed. These addresses will revert until replaced.
+const STRATEGIES = [
+  {
+    id: 1,
+    name: 'Arc Yield Aggregator',
+    strategyType: 'YIELD_MAXIMIZATION',
+    protocolAddress: '0x1111111111111111111111111111111111111111' as `0x${string}`,
+    apy: 7.4,
+    risk: 'Low',
+    status: 'OPTIMIZED',
+    allocated: 65000,
+    desc: 'Auto-compounding USDC lending & yield aggregation',
+  },
+  {
+    id: 2,
+    name: 'Arc Lending Market',
+    strategyType: 'STABLE_LENDING',
+    protocolAddress: '0x2222222222222222222222222222222222222222' as `0x${string}`,
+    apy: 5.2,
+    risk: 'Very Low',
+    status: 'STABLE',
+    allocated: 35000,
+    desc: 'Over-collateralized USDC loans — lowest risk',
+  },
+  {
+    id: 3,
+    name: 'Arc FX Delta Neutral',
+    strategyType: 'FX_DELTA_NEUTRAL',
+    protocolAddress: '0x3333333333333333333333333333333333333333' as `0x${string}`,
+    apy: 11.8,
+    risk: 'Moderate',
+    status: 'ACTIVE_ARBITRAGE',
+    allocated: 15000,
+    desc: 'USDC/EURC delta-neutral arbitrage vault',
+  },
+];
+const STATUS_STYLES: Record<string, string> = {
+  OPTIMIZED:        'bg-emerald-950/50 text-emerald-400 border-emerald-800/40',
+  STABLE:           'bg-sky-950/50 text-sky-400 border-sky-800/40',
+  ACTIVE_ARBITRAGE: 'bg-violet-950/50 text-violet-400 border-violet-800/40',
+};
+const RISK_COLOR: Record<string, string> = {
+  'Very Low': 'text-emerald-400', Low: 'text-sky-400', Moderate: 'text-amber-400', High: 'text-[var(--danger)]',
+};
+
+// ── Activity log ───────────────────────────────────────────────────────────────
+type LogEntry = { id: string; type: 'EXECUTION'|'GUARDRAIL'|'ANALYTICS'|'WARNING'; msg: string; txHash: string | null; ts: string };
+const LOG_ICON: Record<LogEntry['type'], React.ElementType> = { EXECUTION: ArrowUpRight, GUARDRAIL: ShieldAlert, ANALYTICS: Activity, WARNING: AlertTriangle };
+const LOG_COLOR: Record<LogEntry['type'], string> = { EXECUTION: 'text-[var(--accent)]', GUARDRAIL: 'text-emerald-400', ANALYTICS: 'text-[var(--subtle)]', WARNING: 'text-amber-400' };
+
+type Tab = 'dashboard' | 'strategies' | 'guardrails' | 'swap' | 'bridge';
+const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
+  { id: 'dashboard',   label: 'Dashboard',   icon: Activity    },
+  { id: 'strategies',  label: 'Strategies',  icon: TrendingUp  },
+  { id: 'guardrails',  label: 'Guardrails',  icon: ShieldAlert },
+  { id: 'swap',        label: 'Swap',        icon: ArrowDownUp },
+  { id: 'bridge',      label: 'Bridge',      icon: GitBranch   },
+];
+
+// ── Main ───────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState<Tab>('dashboard');
+  const [agentActive, setAgentActive] = useState(true);
+  const [logs, setLogs] = useState<LogEntry[]>([{
+    id: 'seed-1', type: 'GUARDRAIL',
+    msg: 'Vault deployed. Policy enforcement active.',
+    txHash: '0xffc667fa535a433ed4b640df933b3b2bad0586f009ee8d34f482e44702ebf258',
+    ts: new Date().toLocaleTimeString(),
+  }]);
+
+  const { isDark, toggle: toggleTheme } = useTheme();
+  const { connector, address: walletAddress, chainId: walletChainId } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
+
+  // ── Transaction history ───────────────────────────────────────────────────────
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const { records: txRecords, addTxRecord, updateTxStatus, clearHistory } = useTxHistory(walletAddress);
+
+  /** Build a stable record id from txHash or a local id */
+  function txId(base: string) { return `${base}-${Date.now()}`; }
+
+  // ── Live connected-wallet USDC balance ───────────────────────────────────────
+  const { data: walletUsdcBalance } = useReadContract({
+    address: USDC_ADDRESS, abi: erc20Abi, functionName: 'balanceOf',
+    args: walletAddress ? [walletAddress] : undefined,
+    chainId: CHAIN_ID,
+    query: { enabled: !!walletAddress, refetchInterval: 8000 },
+  });
+
+  // ── Write hooks ──────────────────────────────────────────────────────────────
+  const { writeContractAsync: writeVault } = useWriteContract();
+
+  function parseOnchainError(e: unknown): string {
+    const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
+    if (msg.includes('user rejected') || msg.includes('user denied')) return 'Transaction cancelled.';
+    if (msg.includes('insufficient') || msg.includes('exceeds balance')) return 'Insufficient USDC balance.';
+    if (msg.includes('reverted')) {
+      const m = msg.match(/reason="([^"]+)"/);
+      return m ? `Transaction failed: ${m[1]}` : 'Transaction reverted on-chain.';
+    }
+    if (msg.includes('network') || msg.includes('timeout')) return 'Network error — please retry.';
+    return e instanceof Error ? e.message : 'Something went wrong.';
+  }
+
+  // updateDailyLimit state
+  const [newLimitInput, setNewLimitInput] = useState('');
+  const [limitTxHash, setLimitTxHash]   = useState<`0x${string}` | undefined>();
+  const [limitPending, setLimitPending] = useState(false);
+  const { isLoading: limitConfirming, isSuccess: limitSuccess } = useWaitForTransactionReceipt({ hash: limitTxHash, chainId: CHAIN_ID });
+  useEffect(() => {
+    if (limitSuccess && limitTxHash) updateTxStatus(limitTxHash, 'confirmed');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limitSuccess, limitTxHash]);
+
+  async function handleUpdateLimit() {
+    if (!walletAddress) { toast.error('Connect your wallet first'); return; }
+    const rawLimit = parseUsdcInput(newLimitInput, usdcFact.decimals);
+    if (rawLimit === null) { toast.error('Enter a valid positive USDC limit'); return; }
+    if (walletChainId !== CHAIN_ID) {
+      try { await switchChainAsync({ chainId: CHAIN_ID }); }
+      catch { toast.error('Please switch to Arc Mainnet'); return; }
+    }
+    setLimitPending(true);
+    const tid = toast.loading('Sending updateDailyLimit…');
+    try {
+      const hash = await writeVault({ address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'updateDailyLimit', args: [rawLimit], chainId: CHAIN_ID });
+      setLimitTxHash(hash);
+      toast.dismiss(tid);
+      toast.success('Daily limit updated', { description: hash.slice(0, 14) + '…' });
+      addLog({ type: 'GUARDRAIL', msg: `Daily limit updated to $${newLimitInput} USDC`, txHash: hash });
+      addTxRecord({
+        id: hash, type: 'VAULT_CONFIG', status: 'pending',
+        summary: `Set daily limit to $${newLimitInput} USDC`,
+        detail: 'Arc Mainnet · AgentTreasuryVault', txHash: hash, chainId: CHAIN_ID,
+        timestamp: new Date().toISOString(),
+      });
+      setNewLimitInput('');
+      void refetch();
+    } catch (e: unknown) {
+      toast.dismiss(tid);
+      toast.error('Transaction failed', { description: parseOnchainError(e) });
+    } finally {
+      setLimitPending(false);
+    }
+  }
+
+  // updateAgent state
+  const [newAgentInput, setNewAgentInput] = useState('');
+  const [agentTxHash, setAgentTxHash]     = useState<`0x${string}` | undefined>();
+  const [agentTxPending, setAgentTxPending] = useState(false);
+  const { isLoading: agentTxConfirming } = useWaitForTransactionReceipt({ hash: agentTxHash, chainId: CHAIN_ID });
+
+  async function handleUpdateAgent() {
+    if (!walletAddress) { toast.error('Connect your wallet first'); return; }
+    const addr = newAgentInput.trim();
+    if (!addr.startsWith('0x') || addr.length !== 42) {
+      toast.error('Invalid address', { description: 'Must be a 42-character 0x address' }); return;
+    }
+    if (walletChainId !== CHAIN_ID) {
+      try { await switchChainAsync({ chainId: CHAIN_ID }); }
+      catch { toast.error('Please switch to Arc Mainnet'); return; }
+    }
+    setAgentTxPending(true);
+    const tid = toast.loading('Sending updateAgent…');
+    try {
+      const hash = await writeVault({ address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'updateAgent', args: [addr as `0x${string}`], chainId: CHAIN_ID });
+      setAgentTxHash(hash);
+      toast.dismiss(tid);
+      toast.success('Agent address updated', { description: hash.slice(0, 14) + '…' });
+      addLog({ type: 'GUARDRAIL', msg: `Agent updated to ${newAgentInput.slice(0, 10)}…`, txHash: hash });
+      addTxRecord({
+        id: hash, type: 'VAULT_CONFIG', status: 'pending',
+        summary: `Update agent → ${newAgentInput.slice(0, 8)}…`,
+        detail: 'Arc Mainnet · AgentTreasuryVault', txHash: hash, chainId: CHAIN_ID,
+        timestamp: new Date().toISOString(),
+      });
+      setNewAgentInput('');
+      void refetch();
+    } catch (e: unknown) {
+      toast.dismiss(tid);
+      toast.error('Transaction failed', { description: parseOnchainError(e) });
+    } finally {
+      setAgentTxPending(false);
+    }
+  }
+
+  // emergencyWithdraw
+  const [ewPending, setEwPending] = useState(false);
+  async function handleEmergencyWithdraw() {
+    if (!walletAddress) { toast.error('Connect your wallet first'); return; }
+    if (!confirm('Withdraw ALL vault USDC to the owner address? This cannot be undone.')) return;
+    if (walletChainId !== CHAIN_ID) {
+      try { await switchChainAsync({ chainId: CHAIN_ID }); }
+      catch { toast.error('Please switch to Arc Mainnet'); return; }
+    }
+    setEwPending(true);
+    const tid = toast.loading('Sending emergencyWithdrawAll…');
+    try {
+      const hash = await writeVault({ address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'emergencyWithdrawAll', args: [], chainId: CHAIN_ID });
+      toast.dismiss(tid);
+      toast.success('Emergency withdrawal sent', { description: hash.slice(0, 14) + '…' });
+      addLog({ type: 'WARNING', msg: 'Emergency withdrawal executed', txHash: hash });
+      addTxRecord({
+        id: hash, type: 'VAULT_CONFIG', status: 'pending',
+        summary: 'Emergency withdraw all USDC',
+        detail: 'Arc Mainnet · AgentTreasuryVault', txHash: hash, chainId: CHAIN_ID,
+        timestamp: new Date().toISOString(),
+      });
+      void refetch();
+    } catch (e: unknown) {
+      toast.dismiss(tid);
+      toast.error('Withdrawal failed', { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setEwPending(false);
+    }
+  }
+
+  // ── Run Strategy quick-execute (hero "Run Strategy" button) ─────────────────
+  const [runModalOpen,    setRunModalOpen]    = useState(false);
+  const [runStratIdx,     setRunStratIdx]     = useState(0);   // index into STRATEGIES
+  const [runAmountInput,  setRunAmountInput]  = useState('');
+  const [runPending,      setRunPending]      = useState(false);
+
+  async function handleRunStrategy() {
+    if (!walletAddress) { toast.error('Connect your wallet first'); return; }
+    const strat = STRATEGIES[runStratIdx];
+    if (!strat) return;
+    const rawAmt = parseUsdcInput(runAmountInput, usdcFact.decimals);
+    if (rawAmt === null) { toast.error('Enter a valid positive amount'); return; }
+    if (walletChainId !== CHAIN_ID) {
+      try { await switchChainAsync({ chainId: CHAIN_ID }); }
+      catch { toast.error('Please switch to Arc Mainnet'); return; }
+    }
+    setRunPending(true);
+    const displayAmt = formatUsdc(rawAmt);
+    const tid = toast.loading(`Executing ${strat.strategyType}…`);
+    try {
+      const hash = await writeVault({
+        address: VAULT_ADDRESS, abi: VAULT_ABI,
+        functionName: 'executeStrategy',
+        args: [strat.protocolAddress, rawAmt, '0x', strat.strategyType],
+        chainId: CHAIN_ID,
+      });
+      toast.dismiss(tid);
+      toast.success('Strategy executed', { description: hash.slice(0, 14) + '…' });
+      addLog({ type: 'EXECUTION', msg: `Executed ${strat.name}: $${displayAmt} USDC`, txHash: hash });
+      addTxRecord({
+        id: hash, type: 'VAULT_CONFIG', status: 'pending',
+        summary: `Execute ${strat.name} · $${displayAmt}`,
+        detail: `Arc Mainnet · ${strat.strategyType}`, txHash: hash, chainId: CHAIN_ID,
+        timestamp: new Date().toISOString(),
+      });
+      setRunModalOpen(false);
+      setRunAmountInput('');
+      void refetch();
+    } catch (e: unknown) {
+      toast.dismiss(tid);
+      const msg = parseOnchainError(e);
+      const detail = msg.includes('reverted')
+        ? 'Protocol not allowlisted or vault has insufficient USDC. Check Strategies tab.'
+        : msg;
+      toast.error('Strategy failed', { description: detail });
+    } finally {
+      setRunPending(false);
+    }
+  }
+
+  // ── Inline Daily Limit edit on Dashboard ─────────────────────────────────────
+  const [limitEditOpen, setLimitEditOpen] = useState(false);
+  const [dashLimitInput, setDashLimitInput] = useState('');
+
+  async function handleDashUpdateLimit() {
+    if (!walletAddress) { toast.error('Connect your wallet first'); return; }
+    const rawLimit = parseUsdcInput(dashLimitInput, usdcFact.decimals);
+    if (rawLimit === null) { toast.error('Enter a valid positive USDC limit'); return; }
+    if (walletChainId !== CHAIN_ID) {
+      try { await switchChainAsync({ chainId: CHAIN_ID }); }
+      catch { toast.error('Please switch to Arc Mainnet'); return; }
+    }
+    setLimitPending(true);
+    const tid = toast.loading('Updating daily limit…');
+    try {
+      const hash = await writeVault({ address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'updateDailyLimit', args: [rawLimit], chainId: CHAIN_ID });
+      setLimitTxHash(hash);
+      toast.dismiss(tid);
+      toast.success('Daily limit updated', { description: hash.slice(0, 14) + '…' });
+      addLog({ type: 'GUARDRAIL', msg: `Daily limit updated to $${dashLimitInput} USDC`, txHash: hash });
+      addTxRecord({ id: hash, type: 'VAULT_CONFIG', status: 'pending', summary: `Set daily limit → $${dashLimitInput}`, detail: 'Arc Mainnet · AgentTreasuryVault', txHash: hash, chainId: CHAIN_ID, timestamp: new Date().toISOString() });
+      setDashLimitInput('');
+      setLimitEditOpen(false);
+      void refetch();
+    } catch (e: unknown) {
+      toast.dismiss(tid);
+      toast.error('Transaction failed', { description: parseOnchainError(e) });
+    } finally {
+      setLimitPending(false);
+    }
+  }
+
+  // ── Send (multi-token ERC-20 transfer from connected wallet) ─────────────────
+  const [sendToken_,    setSendToken_]   = useState<'USDC'|'EURC'|'cirBTC'>('USDC');
+  const [sendRecipient, setSendRecipient] = useState('');
+  const [sendAmount,    setSendAmount]    = useState('');
+  const [sendTxHash,    setSendTxHash]    = useState<`0x${string}` | undefined>();
+  const { writeContractAsync: sendToken, isPending: sendPending } = useWriteContract();
+  const { isLoading: sendConfirming, isSuccess: sendSuccess } = useWaitForTransactionReceipt({ hash: sendTxHash, chainId: CHAIN_ID });
+  const sendMeta = getToken(sendToken_);
+  const { data: sendTokenBalance } = useReadContract({
+    address: sendMeta.address,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: walletAddress ? [walletAddress] : undefined,
+    chainId: CHAIN_ID,
+    query: { enabled: !!walletAddress, refetchInterval: 8000 },
+  });
+  useEffect(() => {
+    if (sendSuccess && sendTxHash) {
+      updateTxStatus(sendTxHash, 'confirmed');
+      // Auto-clear the success receipt after 6 s so the form is fresh for next use
+      const t = setTimeout(() => setSendTxHash(undefined), 6000);
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendSuccess, sendTxHash]);
+
+  async function handleSendUsdc() {
+    if (!walletAddress) { toast.error('Connect your wallet first'); return; }
+    const recipient = sendRecipient.trim();
+    if (!recipient.startsWith('0x') || recipient.length !== 42) {
+      toast.error('Invalid recipient address', { description: 'Must be a 42-character 0x address' }); return;
+    }
+    const rawAmt = parseUsdcInput(sendAmount, sendMeta.decimals);
+    if (rawAmt === null) { toast.error('Enter a valid positive amount'); return; }
+    if (sendTokenBalance !== undefined && exceedsBalance(rawAmt, sendTokenBalance)) {
+      toast.error('Insufficient balance', {
+        description: `You have ${Amount.fromRaw(sendTokenBalance, sendMeta.decimals).toFixed(sendMeta.decimals === 8 ? 8 : 2)} ${sendToken_}`,
+      });
+      return;
+    }
+    if (walletChainId !== CHAIN_ID) {
+      try { await switchChainAsync({ chainId: CHAIN_ID }); }
+      catch { toast.error('Please switch to Arc Mainnet'); return; }
+    }
+    const displayAmt = `${Amount.fromRaw(rawAmt, sendMeta.decimals).toFixed(sendMeta.decimals === 8 ? 8 : 2)} ${sendToken_}`;
+    const tid = toast.loading(`Sending ${displayAmt}…`);
+    try {
+      const hash = await sendToken({
+        address: sendMeta.address,
+        abi: erc20Abi,
+        functionName: 'transfer',
+        args: [recipient as `0x${string}`, rawAmt],
+        chainId: CHAIN_ID,
+      });
+      setSendTxHash(hash);
+      toast.dismiss(tid);
+      toast.success(`${sendToken_} sent`, { description: hash.slice(0, 14) + '…' });
+      addLog({ type: 'EXECUTION', msg: `Sent ${displayAmt} to ${fmtAddr(recipient)}`, txHash: hash });
+      addTxRecord({
+        id: hash, type: 'SEND', status: 'pending',
+        summary: `${displayAmt} → ${fmtAddr(recipient)}`,
+        detail: 'Arc Mainnet', txHash: hash, chainId: CHAIN_ID,
+        timestamp: new Date().toISOString(),
+      });
+      setSendAmount('');
+      setSendRecipient('');
+    } catch (e) {
+      toast.dismiss(tid);
+      toast.error('Send failed', { description: parseOnchainError(e) });
+    }
+  }
+
+  // ── Live vault reads ─────────────────────────────────────────────────────────
+  const { data: vaultData, isLoading: vaultLoading, refetch } = useReadContracts({
+    contracts: [
+      { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'dailyLimit',         chainId: CHAIN_ID },
+      { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'spentToday',         chainId: CHAIN_ID },
+      { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'lastResetTimestamp', chainId: CHAIN_ID },
+      { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'owner',              chainId: CHAIN_ID },
+      { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'aiAgent',            chainId: CHAIN_ID },
+      { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'usdcToken',          chainId: CHAIN_ID },
+    ],
+    query: { refetchInterval: 8000 },
+  });
+  const { data: vaultUsdcBalance } = useReadContract({
+    address: USDC_ADDRESS, abi: erc20Abi, functionName: 'balanceOf',
+    args: [VAULT_ADDRESS], chainId: CHAIN_ID,
+    query: { refetchInterval: 8000 },
+  });
+
+  const dailyLimit = vaultData?.[0].result;
+  const spentToday = vaultData?.[1].result;
+  const lastReset  = vaultData?.[2].result;
+  const ownerAddr  = vaultData?.[3].result as string | undefined;
+  const agentAddr  = vaultData?.[4].result as string | undefined;
+
+  // ── Per-strategy allowlist status (live from chain) ──────────────────────────
+  const { data: allowlistData, refetch: refetchAllowlist } = useReadContracts({
+    contracts: STRATEGIES.map(s => ({
+      address: VAULT_ADDRESS, abi: VAULT_ABI,
+      functionName: 'allowedProtocols' as const,
+      args: [s.protocolAddress] as const,
+      chainId: CHAIN_ID,
+    })),
+    query: { refetchInterval: 10000 },
+  });
+  // allowlistData[i].result === true means strategy i is allowlisted
+  const strategyAllowed = STRATEGIES.map((_, i) =>
+    (allowlistData?.[i]?.result) ?? false
+  );
+
+  // Is connected wallet the vault owner?
+  const isOwner = !!(walletAddress && ownerAddr &&
+    walletAddress.toLowerCase() === ownerAddr.toLowerCase());
+  // Can execute strategies (owner or agent)?
+  const canExecute = !!(walletAddress && (
+    walletAddress.toLowerCase() === ownerAddr?.toLowerCase() ||
+    walletAddress.toLowerCase() === agentAddr?.toLowerCase()
+  ));
+
+  const remaining = useMemo(() => {
+    if (dailyLimit === undefined || spentToday === undefined) return undefined;
+    return dailyLimit > spentToday ? dailyLimit - spentToday : 0n;
+  }, [dailyLimit, spentToday]);
+
+  const budgetPct = useMemo(() => {
+    if (!dailyLimit || !spentToday || dailyLimit === 0n) return 0;
+    return Math.min(100, Number((spentToday * 10000n) / dailyLimit) / 100);
+  }, [dailyLimit, spentToday]);
+
+  function addLog(entry: Omit<LogEntry, 'id' | 'ts'>) {
+    setLogs(prev => [{ ...entry, id: `log-${Date.now()}`, ts: new Date().toLocaleTimeString() }, ...prev.slice(0, 24)]);
+  }
+
+  function toggleAgent() {
+    const next = !agentActive;
+    setAgentActive(next);
+    addLog({ type: next ? 'GUARDRAIL' : 'WARNING', msg: next ? 'AI Agent resumed (UI only).' : 'AI Agent PAUSED (UI only). Use Update Agent to change on-chain.', txHash: null });
+    toast(next ? 'Agent resumed' : 'Agent paused (UI only)', { description: 'Use Guardrails → Update Agent to change the on-chain agent address.' });
+  }
+
+  // ── Strategy action state ────────────────────────────────────────────────────
+  // Per-strategy: { amount: string, pending: boolean, txHash?: string }
+  const [strategyInputs, setStrategyInputs] = useState<Record<number, string>>({});
+  const [strategyPending, setStrategyPending] = useState<Record<number, boolean>>({});
+  const [strategyTxHashes, setStrategyTxHashes] = useState<Record<number, string>>({});
+  const [allowlistPending, setAllowlistPending] = useState<Record<number, boolean>>({});
+
+  async function handleSetAllowedProtocol(strategyId: number, protocolAddress: `0x${string}`, allow: boolean) {
+    if (!walletAddress) { toast.error('Connect your wallet first'); return; }
+    if (!isOwner) { toast.error('Only the vault owner can manage the allowlist'); return; }
+    if (walletChainId !== CHAIN_ID) {
+      try { await switchChainAsync({ chainId: CHAIN_ID }); }
+      catch { toast.error('Please switch to Arc Mainnet'); return; }
+    }
+    setAllowlistPending(prev => ({ ...prev, [strategyId]: true }));
+    const tid = toast.loading(allow ? 'Allowlisting protocol…' : 'Removing from allowlist…');
+    try {
+      const hash = await writeVault({
+        address: VAULT_ADDRESS, abi: VAULT_ABI,
+        functionName: 'setAllowedProtocol',
+        args: [protocolAddress, allow],
+        chainId: CHAIN_ID,
+      });
+      toast.dismiss(tid);
+      toast.success(allow ? 'Protocol allowlisted' : 'Protocol removed', { description: hash.slice(0, 14) + '…' });
+      addLog({ type: 'GUARDRAIL', msg: `Protocol ${protocolAddress.slice(0, 10)}… ${allow ? 'allowlisted' : 'removed'}`, txHash: hash });
+      addTxRecord({
+        id: hash, type: 'VAULT_CONFIG', status: 'pending',
+        summary: `${allow ? 'Allowlist' : 'Remove'} protocol: ${protocolAddress.slice(0, 10)}…`,
+        detail: `Arc Mainnet · AgentTreasuryVault`,
+        txHash: hash, chainId: CHAIN_ID, timestamp: new Date().toISOString(),
+      });
+      void refetchAllowlist();
+    } catch (e) {
+      toast.dismiss(tid);
+      toast.error('Allowlist update failed', { description: parseOnchainError(e) });
+    } finally {
+      setAllowlistPending(prev => ({ ...prev, [strategyId]: false }));
+    }
+  }
+
+  async function handleExecuteStrategy(strategyIdx: number) {
+    const s = STRATEGIES[strategyIdx];
+    if (!s) return;
+    if (!walletAddress) { toast.error('Connect your wallet first'); return; }
+    if (!canExecute) { toast.error('Only the vault owner or AI agent can execute strategies'); return; }
+    const rawAmt = parseUsdcInput(strategyInputs[s.id] ?? '', usdcFact.decimals);
+    if (rawAmt === null) { toast.error('Enter a valid positive USDC amount'); return; }
+    if (vaultUsdcBalance !== undefined && exceedsBalance(rawAmt, vaultUsdcBalance)) {
+      toast.error('Insufficient vault balance', {
+        description: `Vault holds ${Amount.fromRaw(vaultUsdcBalance, usdcFact.decimals).toFixed(2)} USDC`,
+      });
+      return;
+    }
+    if (remaining !== undefined && rawAmt > remaining) {
+      toast.error('Exceeds daily budget', {
+        description: `Remaining today: $${fmtUsdc(remaining)} USDC`,
+      });
+      return;
+    }
+    if (walletChainId !== CHAIN_ID) {
+      try { await switchChainAsync({ chainId: CHAIN_ID }); }
+      catch { toast.error('Please switch to Arc Mainnet'); return; }
+    }
+    setStrategyPending(prev => ({ ...prev, [s.id]: true }));
+    const displayAmt = formatUsdc(rawAmt);
+    const tid = toast.loading(`Executing ${s.name}…`);
+    try {
+      const hash = await writeVault({
+        address: VAULT_ADDRESS, abi: VAULT_ABI,
+        functionName: 'executeStrategy',
+        args: [s.protocolAddress, rawAmt, '0x', s.strategyType],
+        chainId: CHAIN_ID,
+      });
+      setStrategyTxHashes(prev => ({ ...prev, [s.id]: hash }));
+      toast.dismiss(tid);
+      toast.success(`${s.name} executed`, { description: hash.slice(0, 14) + '…' });
+      addLog({ type: 'EXECUTION', msg: `Strategy executed: ${s.name} · $${displayAmt} USDC`, txHash: hash });
+      addTxRecord({
+        id: hash, type: 'VAULT_CONFIG', status: 'pending',
+        summary: `Execute: ${s.name} · $${displayAmt} USDC`,
+        detail: `Arc Mainnet · ${s.strategyType}`,
+        txHash: hash, chainId: CHAIN_ID, timestamp: new Date().toISOString(),
+      });
+      setStrategyInputs(prev => ({ ...prev, [s.id]: '' }));
+      void refetch();
+    } catch (e) {
+      toast.dismiss(tid);
+      const msg = parseOnchainError(e);
+      // Explain the most common revert reason
+      const detail = msg.includes('Protocol not allowed')
+        ? 'The protocol is not yet allowlisted. Toggle it on with the owner wallet first.'
+        : msg.includes('Exceeds agent daily limit')
+        ? 'This amount exceeds the vault\'s daily spending limit.'
+        : msg.includes('Not a contract')
+        ? 'The protocol address has no code. Replace with a real deployed adapter.'
+        : msg;
+      toast.error('Strategy execution failed', { description: detail });
+    } finally {
+      setStrategyPending(prev => ({ ...prev, [s.id]: false }));
+    }
+  }
+
+  // ── Adapter factory (switches wallet to source chain first) ──────────────────
+  const getAdapter = useCallback(async (sourceChainId: number) => {
+    if (!connector) throw new Error('Wallet not connected');
+    await switchChainAsync({ chainId: sourceChainId });
+    const provider = await connector.getProvider() as EIP1193Provider;
+    return createViemAdapterFromProvider({ provider });
+  }, [connector, switchChainAsync]);
+
+  // ── Bridge state ─────────────────────────────────────────────────────────────
+  const [bridgeAmount, setBridgeAmount]   = useState('');
+  const [bridgeDest,   setBridgeDest]     = useState<BridgeChainId>('Base');
+  type BridgeStep = {
+    name: string;
+    state: 'pending' | 'active' | 'success' | 'error';
+    txHash?: string;
+    explorerUrl?: string;
+    error?: string;
+  };
+  const BRIDGE_STEP_NAMES = ['approve', 'burn', 'fetchAttestation', 'mint'] as const;
+
+  const [bridgePhase, setBridgePhase] = useState<'idle'|'bridging'|'done'|'error'>('idle');
+  const [bridgeError, setBridgeError] = useState('');
+  const [bridgeSteps, setBridgeSteps] = useState<BridgeStep[]>([]);
+  const [bridgeTxHash, setBridgeTxHash] = useState('');
+  const [lastBridgeResult, setLastBridgeResult] = useState<Awaited<ReturnType<typeof appKit.bridge>> | null>(null);
+  // retryBridge resumes from the failed step — never re-run bridge() from scratch after a soft error
+
+  const destChain = BRIDGE_CHAINS.find(c => c.id === bridgeDest)!;
+
+  function initSteps(): BridgeStep[] {
+    return BRIDGE_STEP_NAMES.map((name, i) => ({
+      name,
+      state: i === 0 ? 'active' : 'pending',
+    }));
+  }
+
+  function updateStep(name: string, patch: Partial<BridgeStep>) {
+    setBridgeSteps(prev => {
+      const updated = prev.map(s => s.name === name ? { ...s, ...patch } : s);
+      // activate next pending step
+      const doneIdx = updated.findIndex(s => s.name === name);
+      if (patch.state === 'success' && doneIdx + 1 < updated.length && updated[doneIdx + 1].state === 'pending') {
+        updated[doneIdx + 1] = { ...updated[doneIdx + 1], state: 'active' };
+      }
+      return updated;
+    });
+  }
+
+  async function handleBridge() {
+    if (!connector) { toast.error('Connect your wallet first'); return; }
+    const rawAmt = parseUsdcInput(bridgeAmount, usdcFact.decimals);
+    if (rawAmt === null) { toast.error('Enter a valid positive amount'); return; }
+    if (walletUsdcBalance !== undefined && exceedsBalance(rawAmt, walletUsdcBalance)) {
+      toast.error('Insufficient balance', {
+        description: `You have ${Amount.fromRaw(walletUsdcBalance, usdcFact.decimals).toFixed(2)} USDC`,
+      });
+      return;
+    }
+    setBridgePhase('bridging');
+    setBridgeError('');
+    setBridgeSteps(initSteps());
+    setBridgeTxHash('');
+    setLastBridgeResult(null);
+
+    // Add a pending record immediately
+    const localBridgeId = txId('bridge');
+    addTxRecord({
+      id: localBridgeId, type: 'BRIDGE', status: 'pending',
+      summary: `${bridgeAmount} USDC → ${destChain.label}`,
+      detail: `Arc Mainnet → ${destChain.label} · CCTP v2`,
+      chainId: CHAIN_ID, timestamp: new Date().toISOString(),
+    });
+
+    const tid = toast.loading('Step 1/4: Approving USDC…');
+
+    // ── Subscribe to step events for live progress ───────────────────────────
+    const onApprove = (payload: Parameters<Parameters<typeof appKit.on<'bridge.approve'>>[1]>[0]) => {
+      if (payload.protocol !== 'cctp') return;
+      const v = payload.values as { txHash?: string; state?: string };
+      updateStep('approve', { state: 'success', txHash: v.txHash });
+      toast.loading('Step 2/4: Burning USDC on Arc Mainnet…', { id: tid });
+    };
+    const onBurn = (payload: Parameters<Parameters<typeof appKit.on<'bridge.burn'>>[1]>[0]) => {
+      const v = payload.values as { txHash?: string; explorerUrl?: string };
+      updateStep('burn', { state: 'success', txHash: v.txHash, explorerUrl: v.explorerUrl });
+      setBridgeTxHash(v.txHash ?? '');
+      toast.loading('Step 3/4: Waiting for Circle attestation…', { id: tid });
+    };
+    const onAttestation = (payload: Parameters<Parameters<typeof appKit.on<'bridge.fetchAttestation'>>[1]>[0]) => {
+      if (payload.protocol !== 'cctp') return;
+      const v = payload.values as { state?: string };
+      if (v.state === 'success') {
+        updateStep('fetchAttestation', { state: 'success' });
+        toast.loading('Step 4/4: Minting USDC on destination…', { id: tid });
+      }
+    };
+    const onMint = (payload: Parameters<Parameters<typeof appKit.on<'bridge.mint'>>[1]>[0]) => {
+      const v = payload.values as { txHash?: string; explorerUrl?: string };
+      updateStep('mint', { state: 'success', txHash: v.txHash, explorerUrl: v.explorerUrl });
+    };
+
+    appKit.on('bridge.approve',          onApprove);
+    appKit.on('bridge.burn',             onBurn);
+    appKit.on('bridge.fetchAttestation', onAttestation);
+    appKit.on('bridge.mint',             onMint);
+
+    try {
+      const adapter = await getAdapter(CHAIN_ID);
+      const result = await appKit.bridge({
+        from: { adapter, chain: 'Arc' },
+        to:   { adapter, chain: bridgeDest, useForwarder: true },
+        amount: bridgeAmount,
+      });
+      setLastBridgeResult(result);
+
+      // Back-fill any steps the events may have missed (e.g. fast-mode race)
+      result.steps?.forEach(s => {
+        updateStep(s.name, {
+          state: s.state as BridgeStep['state'],
+          txHash: s.txHash ?? undefined,
+          explorerUrl: s.explorerUrl ?? undefined,
+          error: (s as { error?: string }).error,
+        });
+      });
+
+      const burnTx = result.steps?.find(s => s.name === 'burn')?.txHash ?? bridgeTxHash;
+      setBridgeTxHash(burnTx);
+
+      if (result.state === 'error') {
+        const failed = result.steps?.find(s => s.state === 'error');
+        const errMsg = (failed as { error?: string })?.error ?? 'Bridge failed at an unknown step';
+        setBridgeError(errMsg);
+        setBridgePhase('error');
+        toast.dismiss(tid);
+        toast.error('Bridge failed', { description: errMsg });
+      } else {
+        setBridgePhase('done');
+        toast.dismiss(tid);
+        toast.success('Bridge confirmed', { description: burnTx ? burnTx.slice(0, 14) + '…' : undefined });
+        addLog({ type: 'EXECUTION', msg: `Bridged ${bridgeAmount} USDC → ${destChain.label}`, txHash: burnTx || null });
+        // Confirm the pending record, attach burn txHash
+        updateTxStatus(localBridgeId, 'confirmed', burnTx || undefined);
+      }
+    } catch (e: unknown) {
+      const userMsg = parseOnchainError(e);
+      setBridgeError(userMsg);
+      setBridgePhase('error');
+      // Mark the active step as errored
+      setBridgeSteps(prev => prev.map(s => s.state === 'active' ? { ...s, state: 'error', error: userMsg } : s));
+      updateTxStatus(localBridgeId, 'failed');
+      toast.dismiss(tid);
+      toast.error('Bridge failed', { description: userMsg });
+    } finally {
+      appKit.off('bridge.approve',          onApprove);
+      appKit.off('bridge.burn',             onBurn);
+      appKit.off('bridge.fetchAttestation', onAttestation);
+      appKit.off('bridge.mint',             onMint);
+    }
+  }
+
+  async function handleRetryBridge() {
+    if (!lastBridgeResult || !connector) return;
+    setBridgePhase('bridging');
+    setBridgeError('');
+    const adapter = await getAdapter(CHAIN_ID);
+    const tid = toast.loading('Retrying bridge from failed step…');
+    try {
+      const retryResult = await appKit.retryBridge(lastBridgeResult, { from: adapter, to: adapter });
+      setLastBridgeResult(retryResult);
+      retryResult.steps?.forEach(s => updateStep(s.name, {
+        state: s.state as BridgeStep['state'],
+        txHash: s.txHash ?? undefined,
+        explorerUrl: s.explorerUrl ?? undefined,
+      }));
+      if (retryResult.state === 'error') {
+        const failed = retryResult.steps?.find(s => s.state === 'error');
+        const errMsg = (failed as { error?: string })?.error ?? 'Retry failed';
+        setBridgeError(errMsg);
+        setBridgePhase('error');
+        toast.dismiss(tid);
+        toast.error('Retry failed', { description: errMsg });
+      } else {
+        setBridgePhase('done');
+        toast.dismiss(tid);
+        toast.success('Bridge retry succeeded');
+      }
+    } catch (e: unknown) {
+      const msg = parseOnchainError(e);
+      setBridgeError(msg);
+      setBridgePhase('error');
+      toast.dismiss(tid);
+      toast.error('Retry failed', { description: msg });
+    }
+  }
+
+  // (state resets handled inline in the change handlers below)
+
+  const loading = vaultLoading;
+
+  return (
+    <div className="min-h-dvh" style={{ background: 'var(--bg-gradient)' }}>
+
+      {/* ── Header ─────────────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-40 border-b border-[var(--border)] backdrop-blur-xl bg-[var(--surface-glass)]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            {/* Brand logo mark */}
+            <div className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: 'linear-gradient(135deg, rgba(252,114,255,0.15) 0%, rgba(252,114,255,0.05) 100%)', border: '1px solid rgba(252,114,255,0.28)', boxShadow: '0 0 16px rgba(252,114,255,0.12)' }}>
+              <Bot className="w-5 h-5" style={{ color: '#FC72FF' }} />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[var(--bg)]" style={{ background: '#FC72FF' }} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="syne text-[15px] font-bold leading-tight" style={{ background: 'linear-gradient(90deg,#FC72FF,#f0abfc,#10b981)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  ArcGentic
+                </h1>
+                <span className="hidden sm:inline text-[var(--subtle)] text-[12px]">·</span>
+                <span className="hidden sm:inline text-[11px] text-[var(--muted)] font-medium">Autonomous Treasury</span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border border-[rgba(99,102,241,0.30)] bg-[rgba(99,102,241,0.08)] text-[#a5b4fc] tracking-wide syne">
+                  <span className="w-1 h-1 rounded-full bg-[#6366f1]" />
+                  CIRCLE USDC
+                </span>
+              </div>
+              <p className="text-[9px] text-[var(--subtle)] tracking-widest uppercase mt-0.5 syne">Arc L1 · CCTP v2 · AgentTreasuryVault</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Agent status pill + toggle — hidden on xs */}
+            <div className="hidden sm:flex items-center gap-1.5">
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold border ${
+                agentActive ? 'bg-emerald-950/50 border-emerald-700/40 text-emerald-400' : 'bg-amber-950/50 border-amber-700/40 text-amber-400'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${agentActive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                {agentActive ? 'ACTIVE' : 'PAUSED'}
+              </div>
+              <button onClick={toggleAgent} title={agentActive ? 'Pause agent' : 'Resume agent'}
+                className="p-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:bg-white/10 transition-colors">
+                {agentActive ? <Pause className="w-3.5 h-3.5 text-[var(--danger)]" /> : <Play className="w-3.5 h-3.5 fill-current text-[var(--success)]" />}
+              </button>
+            </div>
+
+            {/* Connected wallet chip — shows address + USDC balance */}
+            {walletAddress && (
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[11px]">
+                <Wallet className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                <span className="mono text-[var(--ink-2)]">{walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}</span>
+                {walletUsdcBalance !== undefined && (
+                  <>
+                    <span className="text-[var(--border-strong)]">·</span>
+                    <TokenUSDC variant="branded" size={12} />
+                    <span className="tabular text-[var(--ink-2)]">
+                      {Amount.fromRaw(walletUsdcBalance, usdcFact.decimals).toFixed(2)}
+                    </span>
+                  </>
+                )}
+                {walletChainId && walletChainId !== CHAIN_ID && (
+                  <span className="text-[10px] font-bold text-amber-400 border border-amber-700/40 bg-amber-950/40 px-1.5 py-0.5 rounded-full">Wrong network</span>
+                )}
+              </div>
+            )}
+
+            {/* History button */}
+            <button
+              onClick={() => setHistoryOpen(true)}
+              className="relative p-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:bg-white/10 transition-colors"
+              title="Transaction History"
+            >
+              <History className="w-4 h-4 text-[var(--subtle)]" />
+              {txRecords.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center" style={{ background: '#FC72FF' }}>
+                  {txRecords.length > 99 ? '99' : txRecords.length}
+                </span>
+              )}
+            </button>
+
+            {/* Theme toggle */}
+            <button
+              onClick={toggleTheme}
+              title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              className="p-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-strong)] hover:border-[var(--primary-border)] transition-all"
+            >
+              {isDark
+                ? <Sun className="w-4 h-4 text-[var(--amber)]" />
+                : <Moon className="w-4 h-4 text-[var(--violet)]" />}
+            </button>
+
+            <ConnectKitButton />
+          </div>
+        </div>
+
+        {/* Tab bar */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-0 overflow-x-auto no-scrollbar">
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-[11px] font-semibold border-b-2 whitespace-nowrap transition-colors ${
+                tab === t.id
+                  ? 'border-[#FC72FF] text-[#FC72FF]'
+                  : 'border-transparent text-[var(--subtle)] hover:text-[var(--primary)]'
+              }`}
+            >
+              <t.icon className="w-3.5 h-3.5" />
+              {t.label}
+              {(t.id === 'swap' || t.id === 'bridge') && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] border border-[var(--accent)]/30">NEW</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {/* ── Main content ────────────────────────────────────────────────────────── */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+
+        {/* Wrong-chain banner — shown on every tab */}
+        {walletAddress && walletChainId && walletChainId !== CHAIN_ID && (
+          <div className="mb-5 rounded-xl border border-amber-700/50 bg-amber-950/30 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span className="text-[12px] text-amber-300">
+                Your wallet is on the wrong network. Switch to <strong>Arc Mainnet</strong> to sign transactions.
+              </span>
+            </div>
+            <button
+              onClick={() => void switchChainAsync({ chainId: CHAIN_ID })}
+              className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-500 text-black text-[12px] font-bold hover:bg-amber-400 transition-colors shrink-0"
+            >
+              Switch to Arc Mainnet
+            </button>
+          </div>
+        )}
+
+        {/* ══ Dashboard ══════════════════════════════════════════════════════════ */}
+        {tab === 'dashboard' && (
+          <div className="space-y-5">
+
+            {/* ── Hero card ─────────────────────────────────────────────────── */}
+            <div className="relative rounded-3xl border border-[var(--border-glow)] overflow-hidden"
+              style={{ background: 'linear-gradient(135deg, rgba(0,200,255,0.06) 0%, rgba(9,13,22,0.95) 40%, rgba(120,40,255,0.06) 100%)', boxShadow: 'var(--glow-cyan)' }}>
+              {/* Background noise texture */}
+              <div className="absolute inset-0 opacity-[0.03]"
+                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\' opacity=\'1\'/%3E%3C/svg%3E")', backgroundSize: '200px 200px' }} />
+
+              <div className="relative p-6 sm:p-8">
+                {/* Top row */}
+                <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-400/20 to-purple-500/20 border border-cyan-500/30 flex items-center justify-center">
+                        <Bot className="w-5 h-5 text-cyan-400" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--subtle)]">Arc Autonomous Treasury</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="relative flex h-2 w-2">
+                          <span className={`animate-ping-slow absolute inline-flex h-full w-full rounded-full ${agentActive ? 'bg-emerald-400' : 'bg-amber-400'} opacity-75`} />
+                          <span className={`relative inline-flex rounded-full h-2 w-2 ${agentActive ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                        </span>
+                        <span className={`text-[11px] font-bold ${agentActive ? 'text-emerald-400' : 'text-amber-400'}`}>
+                          {agentActive ? 'AI OPTIMIZING YIELD' : 'AGENT PAUSED'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => void refetch()}
+                      className="p-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors" title="Refresh vault state">
+                      <RefreshCw className="w-4 h-4 text-[var(--subtle)]" />
+                    </button>
+                    <a href={buildTxExplorerUrl(CHAIN_ID, '0xffc667fa535a433ed4b640df933b3b2bad0586f009ee8d34f482e44702ebf258')}
+                      target="_blank" rel="noopener noreferrer"
+                      className="p-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors" title="View deploy tx on explorer">
+                      <ExternalLink className="w-4 h-4 text-[var(--subtle)]" />
+                    </a>
+                    <button
+                      onClick={() => setRunModalOpen(true)}
+                      className="px-3 py-2 min-h-[40px] rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 text-[11px] font-bold hover:bg-cyan-500/25 transition-colors flex items-center gap-1.5"
+                    >
+                      <Zap className="w-3.5 h-3.5" /> Run Strategy
+                    </button>
+                  </div>
+                </div>
+
+                {/* Big balance */}
+                <div className="mb-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <TokenUSDC variant="branded" size={16} />
+                    <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--subtle)]">Vault USDC Balance</span>
+                  </div>
+                  <LerpedBalance raw={vaultUsdcBalance} loading={loading} decimals={usdcFact.decimals} />
+                </div>
+
+                {/* Vault address + budget in one row */}
+                <div className="flex items-center justify-between gap-4 mt-5 flex-wrap">
+                  <a href={`${chain.explorerBase}/address/${VAULT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+                    className="mono text-[11px] text-[var(--subtle)] hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
+                    {fmtAddr(VAULT_ADDRESS)} <ExternalLink className="w-3 h-3" />
+                  </a>
+                  {!loading && dailyLimit !== undefined && spentToday !== undefined && (
+                    <div className="flex items-center gap-3 flex-1 min-w-[160px] max-w-xs">
+                      <div className="flex-1">
+                        <BudgetBar spent={spentToday} limit={dailyLimit} />
+                      </div>
+                      <span className="mono text-[10px] text-[var(--subtle)] shrink-0">{budgetPct.toFixed(1)}% used</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Stat cards ────────────────────────────────────────────────── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Daily Limit — clickable inline edit (owner only) */}
+              <div
+                className={`relative rounded-2xl border p-5 flex flex-col gap-2.5 transition-all cursor-pointer
+                  ${limitEditOpen
+                    ? 'border-cyan-500/50 bg-cyan-950/20 col-span-2 lg:col-span-1'
+                    : 'border-cyan-500/20 bg-[var(--surface-glass)] hover:border-cyan-500/40'
+                  }`}
+                style={{ boxShadow: limitEditOpen ? '0 0 18px rgba(0,200,255,0.12)' : undefined }}
+                onClick={() => { if (!limitEditOpen && isOwner) { setLimitEditOpen(true); setDashLimitInput(''); } }}
+                title={isOwner ? 'Click to edit daily limit' : undefined}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)]">Daily Limit</span>
+                  <div className="flex items-center gap-1.5">
+                    {isOwner && !limitEditOpen && <Settings className="w-3 h-3 text-cyan-500/60" />}
+                    <div className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                      <Lock className="w-3.5 h-3.5 text-cyan-400" />
+                    </div>
+                  </div>
+                </div>
+                <p className="display text-2xl font-bold text-[var(--ink)] tabular">{loading ? '…' : `$${fmtUsdc(dailyLimit)}`}</p>
+                <p className="text-[11px] text-[var(--subtle)]">{isOwner ? 'Click to update' : 'Max spend / day'}</p>
+
+                {/* Inline edit row — only when open */}
+                {limitEditOpen && (
+                  <div className="mt-2 space-y-2" onClick={e => e.stopPropagation()}>
+                    <input
+                      type="number" min="0" step="any" autoFocus
+                      value={dashLimitInput}
+                      onChange={e => setDashLimitInput(e.target.value)}
+                      placeholder={fmtUsdc(dailyLimit)}
+                      className="w-full bg-white/5 border border-cyan-500/30 rounded-xl px-3 py-2 display text-[13px] font-bold text-[var(--ink)] placeholder-white/20 focus:outline-none focus:border-cyan-400/60 tabular"
+                      disabled={limitPending || limitConfirming}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => void handleDashUpdateLimit()}
+                        disabled={limitPending || limitConfirming || !dashLimitInput}
+                        className="flex-1 min-h-[36px] rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 text-[11px] font-bold hover:bg-cyan-500/30 disabled:opacity-40 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        {limitPending || limitConfirming
+                          ? <><Loader2 className="w-3 h-3 animate-spin" /> Confirming…</>
+                          : <><CheckCircle2 className="w-3 h-3" /> Set Limit</>}
+                      </button>
+                      <button
+                        onClick={() => setLimitEditOpen(false)}
+                        className="px-3 min-h-[36px] rounded-xl border border-white/10 bg-white/5 text-[var(--subtle)] text-[11px] font-bold hover:bg-white/10 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <GlowStatCard label="Spent Today"   value={loading ? '…' : `$${fmtUsdc(spentToday)}`}  sub={`${budgetPct.toFixed(1)}% of limit`} icon={DollarSign} glow="purple" />
+              <GlowStatCard label="Remaining"     value={loading ? '…' : `$${fmtUsdc(remaining)}`}   sub="Budget left"            icon={TrendingUp} glow="green"  />
+              <GlowStatCard label="Resets At"     value={loading ? '…' : fmtTimestamp(lastReset)}    sub="Next 24h window"        icon={Clock}      glow="amber"  />
+            </div>
+
+            {/* ── Allocation ring + Quick actions (side by side on md+) ─────── */}
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* Ring */}
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-glass)] backdrop-blur-md p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)]">Portfolio Allocation</span>
+                  <span className="text-[10px] text-[var(--subtle)]">{STRATEGIES.length} strategies</span>
+                </div>
+                <AllocationRing strategies={STRATEGIES} weightedApy={
+                  (STRATEGIES.reduce((a, s) => a + s.apy * s.allocated, 0) /
+                  Math.max(1, STRATEGIES.reduce((a, s) => a + s.allocated, 0))).toFixed(2)
+                } />
+              </div>
+
+              {/* Quick actions */}
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-glass)] backdrop-blur-md p-5 space-y-3">
+                <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)] block">Quick Actions</span>
+                <div className="flex gap-3 flex-wrap">
+                  <QuickActionCard icon={Send}        label="Send"   desc="Transfer USDC"        color="cyan"   onClick={() => {/* handled below via Send form */}} />
+                  <QuickActionCard icon={ArrowDownUp} label="Swap"   desc="USDC → token"         color="purple" onClick={() => setTab('swap')}   />
+                  <QuickActionCard icon={GitBranch}   label="Bridge" desc="Cross-chain transfer"  color="green"  onClick={() => setTab('bridge')} />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Addresses + Activity log ───────────────────────────────────── */}
+            <div className="grid lg:grid-cols-2 gap-4">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-glass)] backdrop-blur-md p-5">
+                <h2 className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)] mb-4">Vault Addresses</h2>
+                <AddressRow label="Vault Contract" value={VAULT_ADDRESS} />
+                <AddressRow label="Owner"          value={ownerAddr} />
+                <AddressRow label="AI Agent"       value={agentAddr} />
+                <AddressRow label="USDC Token"     value={usdcFact.address} />
+              </div>
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-glass)] backdrop-blur-md p-5 flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)]">Activity Log</h2>
+                  <span className="mono text-[10px] text-[var(--subtle)]">{logs.length} entries</span>
+                </div>
+                <div className="divide-y divide-[var(--border)] overflow-y-auto max-h-60 scrollbar-thin">
+                  {logs.length === 0 && (
+                    <p className="text-[11px] text-[var(--subtle)] py-4 text-center">No activity yet</p>
+                  )}
+                  {logs.map(entry => {
+                    const EntryIcon = LOG_ICON[entry.type];
+                    return (
+                      <div key={entry.id} className="log-row flex items-start gap-3 py-3 first:pt-0 rounded-lg px-1 -mx-1">
+                        <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                          entry.type === 'EXECUTION' ? 'bg-cyan-500/10 border border-cyan-500/20' :
+                          entry.type === 'GUARDRAIL' ? 'bg-emerald-500/10 border border-emerald-500/20' :
+                          entry.type === 'WARNING'   ? 'bg-amber-500/10 border border-amber-500/20' :
+                          'bg-white/5 border border-white/10'
+                        }`}>
+                          <EntryIcon className={`w-3 h-3 ${LOG_COLOR[entry.type]}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] text-[var(--ink-2)] leading-snug text-pretty">{entry.msg}</p>
+                          {entry.txHash && (
+                            <a href={buildTxExplorerUrl(CHAIN_ID, entry.txHash)} target="_blank" rel="noopener noreferrer"
+                              className="mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)] transition-colors">
+                              {entry.txHash.slice(0, 14)}…
+                            </a>
+                          )}
+                        </div>
+                        <span className="mono text-[10px] text-[var(--subtle)] shrink-0 pt-0.5">{entry.ts}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Send Token ─────────────────────────────────────────────────────── */}
+            <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-strong)] p-5 sm:p-6 overflow-hidden">
+              <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-[var(--primary)]/10 border border-[var(--primary-border)]">
+                    <Send className="w-4 h-4 text-[var(--primary)]" />
+                  </div>
+                  <div>
+                    <h2 className="display text-[15px] font-bold text-[var(--ink)]">Send Tokens</h2>
+                    <p className="text-[11px] text-[var(--subtle)]">ERC-20 transfer on Arc Mainnet</p>
+                  </div>
+                </div>
+                {/* Token selector chips */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {SENDABLE_TOKENS.map(t => (
+                    <button
+                      key={t.symbol}
+                      onClick={() => { setSendToken_(t.symbol as 'USDC' | 'EURC' | 'cirBTC'); setSendAmount(''); }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border transition-all min-h-[36px] ${
+                        sendToken_ === t.symbol
+                          ? 'text-white border-transparent'
+                          : 'border-[var(--border)] text-[var(--subtle)] bg-[var(--surface)] hover:border-[var(--primary-border)]'
+                      }`}
+                      style={sendToken_ === t.symbol ? { background: t.color, borderColor: t.color } : {}}
+                    >
+                      <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black shrink-0"
+                        style={{ background: sendToken_ === t.symbol ? 'rgba(255,255,255,0.25)' : t.color + '33', color: sendToken_ === t.symbol ? '#fff' : t.color }}>
+                        {t.abbr}
+                      </span>
+                      {t.symbol}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Balance display */}
+              {walletAddress && sendTokenBalance !== undefined && (
+                <div className="mb-4 px-4 py-2.5 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] flex items-center justify-between">
+                  <span className="text-[11px] text-[var(--subtle)]">{sendToken_} Balance</span>
+                  <span className="mono text-[12px] font-bold text-[var(--ink-2)] tabular">
+                    {Amount.fromRaw(sendTokenBalance, sendMeta.decimals).toFixed(sendMeta.decimals === 8 ? 8 : 2)} {sendToken_}
+                  </span>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {/* Recipient */}
+                <div className="rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] p-4 overflow-hidden">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block mb-2">
+                    Recipient Address
+                  </label>
+                  <input
+                    type="text"
+                    value={sendRecipient}
+                    onChange={e => setSendRecipient(e.target.value)}
+                    placeholder="0x1234…abcd"
+                    className="w-full bg-transparent mono text-[13px] text-[var(--ink)] placeholder-[var(--subtle)] focus:outline-none min-w-0"
+                    disabled={sendPending || sendConfirming}
+                  />
+                </div>
+
+                {/* Amount + Max */}
+                <div className="rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)]">Amount</label>
+                    {walletAddress && sendTokenBalance !== undefined && (
+                      <button
+                        onClick={() => setSendAmount(Amount.fromRaw(sendTokenBalance, sendMeta.decimals).toFixed(sendMeta.decimals))}
+                        className="text-[10px] font-bold text-[var(--primary)] hover:opacity-80 transition-opacity"
+                      >
+                        MAX
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={sendAmount}
+                      onChange={e => setSendAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="flex-1 min-w-0 bg-transparent display text-2xl font-bold text-[var(--ink)] placeholder-[var(--subtle)] focus:outline-none tabular"
+                      disabled={sendPending || sendConfirming}
+                    />
+                    <div className="flex items-center gap-1.5 shrink-0 px-3 py-2 rounded-xl bg-[var(--surface)] border border-[var(--border)]">
+                      <span className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black"
+                        style={{ background: sendMeta.color + '33', color: sendMeta.color }}>{sendMeta.abbr}</span>
+                      <span className="text-[13px] font-bold text-[var(--ink)]">{sendToken_}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Success receipt */}
+                {sendSuccess && sendTxHash && (
+                  <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/30 px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-[12px] text-emerald-400 font-semibold">Transfer confirmed</span>
+                    </div>
+                    <a href={buildTxExplorerUrl(CHAIN_ID, sendTxHash)} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 mono text-[11px] text-[var(--accent)] hover:text-[var(--accent-hover)]">
+                      {sendTxHash.slice(0, 12)}… <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+
+                {/* CTA */}
+                {!walletAddress ? (
+                  <div className="flex justify-center py-2">
+                    <ConnectKitButton label="Connect Wallet to Send" />
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => void handleSendUsdc()}
+                    disabled={sendPending || sendConfirming || !sendAmount || !sendRecipient}
+                    className="w-full min-h-[48px] rounded-2xl btn-neon-primary text-white text-[13px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                  >
+                    {sendPending
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirm in wallet…</>
+                      : sendConfirming
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirming on-chain…</>
+                      : <><Send className="w-4 h-4" /> Send {sendToken_}</>}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* ── Run Strategy modal ──────────────────────────────────────────── */}
+            {runModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                style={{ background: 'rgba(9,13,22,0.85)', backdropFilter: 'blur(8px)' }}
+                onClick={() => { if (!runPending) setRunModalOpen(false); }}>
+                <div
+                  className="w-full max-w-sm rounded-3xl border border-cyan-500/25 p-6 space-y-5"
+                  style={{ background: 'linear-gradient(135deg, rgba(0,200,255,0.06), rgba(9,13,22,0.98))', boxShadow: '0 0 40px rgba(0,200,255,0.12)' }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="display text-[17px] font-bold text-[var(--ink)]">Run Strategy</h3>
+                      <p className="text-[11px] text-[var(--subtle)] mt-0.5">Calls <span className="mono">executeStrategy</span> on vault</p>
+                    </div>
+                    <button onClick={() => setRunModalOpen(false)} className="p-2 rounded-xl hover:bg-white/10 transition-colors text-[var(--subtle)]">
+                      <AlertCircle className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Strategy picker */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)]">Strategy</label>
+                    <div className="space-y-2">
+                      {STRATEGIES.map((s, i) => (
+                        <button key={s.id}
+                          onClick={() => setRunStratIdx(i)}
+                          className={`w-full rounded-xl border p-3 text-left flex items-center justify-between transition-all ${
+                            runStratIdx === i
+                              ? 'border-cyan-500/50 bg-cyan-950/20'
+                              : 'border-white/10 bg-white/5 hover:bg-white/8'
+                          }`}
+                        >
+                          <div>
+                            <p className="text-[12px] font-semibold text-[var(--ink)]">{s.name}</p>
+                            <p className="mono text-[10px] text-[var(--subtle)] mt-0.5">{s.protocolAddress.slice(0, 10)}…</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[12px] font-bold text-emerald-400 tabular">{s.apy}% APY</p>
+                            <p className="text-[10px] text-[var(--subtle)]">{s.risk} risk</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Amount */}
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)]">Amount (USDC)</label>
+                      {vaultUsdcBalance !== undefined && (
+                        <button
+                          onClick={() => setRunAmountInput(Amount.fromRaw(vaultUsdcBalance, usdcFact.decimals).toFixed(6))}
+                          className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
+                        >
+                          MAX (vault)
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number" min="0" step="any" autoFocus
+                        value={runAmountInput}
+                        onChange={e => setRunAmountInput(e.target.value)}
+                        placeholder="0.00"
+                        className="flex-1 bg-transparent display text-2xl font-bold text-[var(--ink)] placeholder-white/20 focus:outline-none tabular"
+                        disabled={runPending}
+                      />
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <TokenUSDC variant="branded" size={18} />
+                        <span className="text-[13px] font-semibold text-[var(--ink-2)]">USDC</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vault balance preview */}
+                  <div className="flex items-center justify-between text-[11px] px-1">
+                    <span className="text-[var(--subtle)]">Vault balance</span>
+                    <span className="tabular font-semibold text-[var(--ink-2)]">
+                      {vaultUsdcBalance !== undefined ? `$${Amount.fromRaw(vaultUsdcBalance, usdcFact.decimals).toFixed(2)} USDC` : '—'}
+                    </span>
+                  </div>
+
+                  {/* CTA */}
+                  {!walletAddress ? (
+                    <div className="flex justify-center"><ConnectKitButton label="Connect Wallet to Execute" /></div>
+                  ) : (
+                    <button
+                      onClick={() => void handleRunStrategy()}
+                      disabled={runPending || !runAmountInput}
+                      className="w-full min-h-[48px] rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[13px] font-bold hover:bg-cyan-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                    >
+                      {runPending
+                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirming in wallet…</>
+                        : <><Zap className="w-4 h-4" /> Execute on Arc Mainnet</>}
+                    </button>
+                  )}
+
+                  <p className="text-[10px] text-[var(--subtle)] text-center">
+                    Reverts unless the protocol is allowlisted — use Strategies tab to manage.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── Ecosystem section ─────────────────────────────────────────────── */}
+            <EcosystemSection />
+          </div>
+        )}
+
+        {/* ══ Strategies ═════════════════════════════════════════════════════════ */}
+        {tab === 'strategies' && (
+          <div className="space-y-4">
+
+            {/* Header bar */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="display font-bold text-[var(--ink)] text-[15px]">Strategy Allocation</h2>
+                <p className="text-[11px] text-[var(--subtle)] mt-0.5">
+                  {canExecute ? 'You can execute strategies as owner / agent.' : 'Connect the owner or agent wallet to execute.'}
+                </p>
+              </div>
+              {!walletAddress && (
+                <ConnectKitButton label="Connect Wallet" />
+              )}
+            </div>
+
+            {/* Info notice — only shown while no protocol is allowlisted */}
+            {strategyAllowed.every(a => !a) && (
+              <div className="rounded-xl border border-amber-800/40 bg-amber-950/20 px-4 py-3 text-[12px] text-amber-300 leading-relaxed">
+                No protocols are allowlisted yet.{isOwner
+                  ? ' Toggle "Allowlist" on each strategy below to register the protocol address on-chain, then allocate USDC.'
+                  : ' The vault owner must allowlist each protocol before execution is possible.'}
+              </div>
+            )}
+
+            {/* Vault USDC + daily budget summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] mb-1">Vault Balance</p>
+                <p className="display font-bold text-[var(--ink)] tabular">
+                  {vaultUsdcBalance !== undefined ? `$${Amount.fromRaw(vaultUsdcBalance, usdcFact.decimals).toFixed(2)}` : '—'}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] mb-1">Remaining Today</p>
+                <p className="display font-bold text-[var(--success)] tabular">
+                  {remaining !== undefined ? `$${fmtUsdc(remaining)}` : '—'}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 col-span-2 sm:col-span-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] mb-1">Weighted APY</p>
+                <p className="display font-bold text-[var(--accent)] tabular">
+                  {(() => {
+                    const total = STRATEGIES.reduce((a, s) => a + s.allocated, 0);
+                    const w = STRATEGIES.reduce((a, s) => a + s.apy * s.allocated, 0);
+                    return total > 0 ? `${(w / total).toFixed(2)}%` : '—';
+                  })()}
+                </p>
+              </div>
+            </div>
+
+            {/* Strategy cards */}
+            {STRATEGIES.map((s, idx) => {
+              const allowed  = strategyAllowed[idx];
+              const pending  = !!strategyPending[s.id];
+              const alPending = !!allowlistPending[s.id];
+              const txHash   = strategyTxHashes[s.id];
+              const inputVal = strategyInputs[s.id] ?? '';
+              return (
+                <div key={s.id} className={`rounded-2xl border bg-[var(--surface)] overflow-hidden transition-colors ${
+                  allowed ? 'border-[var(--border-strong)]' : 'border-[var(--border)]'
+                }`}>
+                  {/* Card header */}
+                  <div className="p-5 flex flex-col sm:flex-row sm:items-start gap-4">
+                    <div className="flex-1 space-y-1.5 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Layers className="w-4 h-4 text-[var(--accent)] shrink-0" />
+                        <span className="font-semibold text-[var(--ink)]">{s.name}</span>
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${STATUS_STYLES[s.status] ?? ''}`}>
+                          {s.status.replace(/_/g, ' ')}
+                        </span>
+                        {/* Allowlist badge */}
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ml-auto ${
+                          allowed
+                            ? 'bg-emerald-950/50 text-emerald-400 border-emerald-800/40'
+                            : 'bg-white/5 text-[var(--subtle)] border-white/10'
+                        }`}>
+                          {allowed ? 'ALLOWLISTED' : 'NOT ALLOWLISTED'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[var(--subtle)]">{s.desc}</p>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-[11px] text-[var(--subtle)]">
+                          Risk: <span className={`font-semibold ${RISK_COLOR[s.risk] ?? ''}`}>{s.risk}</span>
+                        </span>
+                        <span className="text-[11px] text-[var(--subtle)]">
+                          APY: <span className="font-semibold text-[var(--success)]">{s.apy}%</span>
+                        </span>
+                        <span className="text-[11px] text-[var(--subtle)]">
+                          Simulated: <span className="font-semibold tabular">${s.allocated.toLocaleString()}</span>
+                        </span>
+                      </div>
+                      {/* Protocol address */}
+                      <div className="flex items-center gap-1.5 pt-0.5">
+                        <span className="text-[10px] text-[var(--subtle)]">Protocol:</span>
+                        <a href={`${chain.explorerBase}/address/${s.protocolAddress}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)] flex items-center gap-1 truncate max-w-[200px]">
+                          {s.protocolAddress.slice(0, 10)}…{s.protocolAddress.slice(-4)}
+                          <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Owner: Allowlist toggle */}
+                    {isOwner && (
+                      <button
+                        onClick={() => void handleSetAllowedProtocol(s.id, s.protocolAddress, !allowed)}
+                        disabled={alPending}
+                        className={`min-h-[40px] px-4 rounded-xl text-[11px] font-bold border transition-all flex items-center gap-2 shrink-0 ${
+                          allowed
+                            ? 'border-[var(--danger)]/40 bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20'
+                            : 'border-emerald-700/40 bg-emerald-950/30 text-emerald-400 hover:bg-emerald-950/50'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        {alPending
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : allowed
+                            ? <><AlertTriangle className="w-3.5 h-3.5" /> Remove</>
+                            : <><CheckCircle2 className="w-3.5 h-3.5" /> Allowlist</>}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Allocate form — shown when allowed OR owner (so owner can test) */}
+                  {(allowed || isOwner) && (
+                    <div className="border-t border-[var(--border)] p-5 space-y-3 bg-[var(--surface-muted)]/30">
+                      {!allowed && isOwner && (
+                        <p className="text-[11px] text-amber-400">
+                          Protocol not yet allowlisted — the transaction will revert until you allowlist it above.
+                        </p>
+                      )}
+                      <div className="flex gap-2 items-end">
+                        <div className="flex-1 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] p-3">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block mb-1.5">
+                            USDC to Allocate
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number" min="0" step="any"
+                              value={inputVal}
+                              onChange={e => setStrategyInputs(prev => ({ ...prev, [s.id]: e.target.value }))}
+                              placeholder="0.00"
+                              disabled={pending}
+                              className="flex-1 bg-transparent display text-xl font-bold text-[var(--ink)] placeholder-white/20 focus:outline-none tabular min-w-0"
+                            />
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <TokenUSDC variant="branded" size={16} />
+                              <span className="text-[12px] font-semibold text-[var(--ink-2)]">USDC</span>
+                            </div>
+                          </div>
+                        </div>
+                        {!walletAddress ? (
+                          <ConnectKitButton label="Connect" />
+                        ) : !canExecute ? (
+                          <div className="text-[11px] text-[var(--subtle)] text-center max-w-[120px]">
+                            Owner or agent wallet required
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => void handleExecuteStrategy(idx)}
+                            disabled={pending || !inputVal}
+                            className="min-h-[48px] px-5 rounded-xl bg-[var(--accent)] text-[#0d1b2f] text-[12px] font-bold hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap shrink-0"
+                          >
+                            {pending
+                              ? <><Loader2 className="w-4 h-4 animate-spin" /> Executing…</>
+                              : <><ArrowUpRight className="w-4 h-4" /> Allocate</>}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Latest tx hash for this strategy */}
+                      {txHash && (
+                        <a href={buildTxExplorerUrl(CHAIN_ID, txHash)} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)] transition-colors">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                          Last tx: {txHash.slice(0, 16)}… <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+                  {/* No access message */}
+                  {!allowed && !isOwner && (
+                    <div className="border-t border-[var(--border)] px-5 py-3 text-[11px] text-[var(--subtle)]">
+                      Waiting for owner to allowlist this protocol.
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ══ Guardrails ══════════════════════════════════════════════════════════ */}
+        {tab === 'guardrails' && (
+          <div className="space-y-3">
+            {/* Status cards */}
+            {[
+              { icon: Lock,          title: 'Daily Spend Cap',       live: `$${fmtUsdc(dailyLimit)} / day`, desc: 'Hard limit enforced on-chain. Resets every 24 h from the last window start.' },
+              { icon: ShieldAlert,   title: 'Protocol Allowlist',    live: 'On-chain mapping',             desc: 'executeStrategy reverts unless the target address is pre-approved via setAllowedProtocol.' },
+              { icon: Zap,           title: 'Code-Existence Guard',  live: 'Active',                       desc: 'Calls revert if targetProtocol has no bytecode, preventing execution against EOAs.' },
+              { icon: CheckCircle2,  title: 'Allowance Reset',       live: 'Post-call',                    desc: 'ERC-20 allowance is force-reset to 0 after every strategy call, eliminating residual drain risk.' },
+            ].map(g => (
+              <div key={g.title} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 flex items-start gap-4 hover:bg-[var(--surface-strong)] transition-colors">
+                <div className="p-2.5 rounded-xl shrink-0 bg-emerald-950/50 border border-emerald-800/30">
+                  <g.icon className="w-[1.125rem] h-[1.125rem] text-emerald-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-1 flex-wrap">
+                    <span className="font-semibold text-[var(--ink)]">{g.title}</span>
+                    <StatusBadge ok={true} />
+                    <span className="mono text-[11px] text-[var(--accent)] ml-auto">{g.live}</span>
+                  </div>
+                  <p className="text-[12px] text-[var(--subtle)] text-pretty">{g.desc}</p>
+                </div>
+              </div>
+            ))}
+
+            {/* ── Owner write controls ── */}
+            <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-strong)] p-5 space-y-5">
+              <div className="flex items-center gap-2">
+                <Settings className="w-4 h-4 text-[var(--accent)]" />
+                <h3 className="display font-bold text-[var(--ink)] text-[14px]">Owner Controls</h3>
+                <span className="text-[10px] text-[var(--subtle)] ml-auto">Requires owner wallet</span>
+              </div>
+
+              {/* Update daily limit */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block">
+                  Update Daily Limit (USDC)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number" min="0" step="any"
+                    value={newLimitInput}
+                    onChange={e => setNewLimitInput(e.target.value)}
+                    placeholder={`Current: $${fmtUsdc(dailyLimit)}`}
+                    className="flex-1 min-h-[48px] rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] px-4 text-[13px] font-semibold text-[var(--ink)] placeholder-[var(--subtle)]/60 focus:outline-none focus:border-[var(--border-strong)] tabular"
+                  />
+                  <button
+                    onClick={() => void handleUpdateLimit()}
+                    disabled={limitPending || limitConfirming || !newLimitInput}
+                    className="min-h-[48px] px-5 rounded-xl bg-[var(--accent)] text-[#0d1b2f] text-[12px] font-bold hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
+                  >
+                    {limitPending || limitConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    {limitConfirming ? 'Confirming…' : limitPending ? 'Sending…' : 'Set Limit'}
+                  </button>
+                </div>
+                {limitTxHash && (
+                  <a href={buildTxExplorerUrl(CHAIN_ID, limitTxHash)} target="_blank" rel="noopener noreferrer"
+                    className="mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)] flex items-center gap-1">
+                    {limitTxHash.slice(0, 16)}… <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+
+              {/* Update agent address */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block">
+                  Update AI Agent Address
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newAgentInput}
+                    onChange={e => setNewAgentInput(e.target.value)}
+                    placeholder="0x… new agent address"
+                    className="flex-1 min-h-[48px] rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] px-4 text-[12px] mono text-[var(--ink)] placeholder-[var(--subtle)]/60 focus:outline-none focus:border-[var(--border-strong)]"
+                  />
+                  <button
+                    onClick={() => void handleUpdateAgent()}
+                    disabled={agentTxPending || agentTxConfirming || !newAgentInput}
+                    className="min-h-[48px] px-5 rounded-xl bg-[var(--accent)] text-[#0d1b2f] text-[12px] font-bold hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
+                  >
+                    {agentTxPending || agentTxConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    {agentTxConfirming ? 'Confirming…' : agentTxPending ? 'Sending…' : 'Update Agent'}
+                  </button>
+                </div>
+                {agentTxHash && (
+                  <a href={buildTxExplorerUrl(CHAIN_ID, agentTxHash)} target="_blank" rel="noopener noreferrer"
+                    className="mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)] flex items-center gap-1">
+                    {agentTxHash.slice(0, 16)}… <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+
+              {/* Emergency withdraw */}
+              <div className="pt-2 border-t border-[var(--border)]">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <p className="text-[12px] font-semibold text-[var(--danger)]">Emergency Withdraw All</p>
+                    <p className="text-[11px] text-[var(--subtle)] mt-0.5">Drains 100% of vault USDC to the owner address.</p>
+                  </div>
+                  <button
+                    onClick={() => void handleEmergencyWithdraw()}
+                    disabled={ewPending}
+                    className="min-h-[48px] px-5 rounded-xl border border-[var(--danger)]/50 bg-[var(--danger)]/10 text-[var(--danger)] text-[12px] font-bold hover:bg-[var(--danger)]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                  >
+                    {ewPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                    {ewPending ? 'Sending…' : 'Withdraw All'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ Swap ════════════════════════════════════════════════════════════════ */}
+        {tab === 'swap' && (
+          <div className="max-w-[520px] mx-auto px-1">
+            <SwapCard />
+          </div>
+        )}
+
+        {/* ══ Bridge ══════════════════════════════════════════════════════════════ */}
+        {tab === 'bridge' && (
+          <div className="max-w-lg mx-auto space-y-5">
+            {/* Circle CCTP branding chips */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border border-violet-500/30 bg-violet-950/25 text-violet-300">
+                <span className="w-2 h-2 rounded-full border border-violet-400 inline-block" />
+                Circle CCTP v2
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border border-cyan-500/25 bg-cyan-950/20 text-cyan-300">
+                <TokenUSDC variant="branded" size={14} />
+                USDC Burn-and-Mint
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] font-bold border border-amber-500/20 bg-amber-950/15 text-amber-400">
+                ~8–20 s Fast Mode
+              </span>
+            </div>
+            {/* Info banner */}
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[11px] text-[var(--subtle)]">
+              Cross-chain transfers use <span className="text-[var(--ink-2)] font-medium">Circle CCTP v2</span> (burn-and-mint).
+              Fast mode completes in ~8–20 s. No kit key required.
+            </div>
+
+            <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-strong)] p-6 space-y-5">
+              <h2 className="display text-lg font-bold text-[var(--ink)]">Bridge Assets</h2>
+
+              {/* From */}
+              <div className="rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] p-4">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block mb-3">From</label>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)]">
+                    <span className="text-[12px] font-bold text-[var(--ink)]">Arc Mainnet</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)]">
+                    <TokenUSDC variant="branded" size={16} />
+                    <span className="text-[12px] font-bold text-[var(--ink)]">USDC</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Amount */}
+              <AmountInput label="Amount to Bridge" value={bridgeAmount} onChange={v => { setBridgeAmount(v); if (bridgePhase === 'done') setBridgePhase('idle'); }} placeholder="0.00" />
+
+              {/* Arrow */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-[var(--border)]" />
+                <div className="p-2 rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+                  <ArrowRight className="w-4 h-4 text-[var(--accent)]" />
+                </div>
+                <div className="flex-1 h-px bg-[var(--border)]" />
+              </div>
+
+              {/* To chain */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block mb-2">Destination Network</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {BRIDGE_CHAINS.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => { setBridgeDest(c.id); if (bridgePhase === 'done') setBridgePhase('idle'); }}
+                      className={`py-3 px-4 rounded-xl border text-[12px] font-semibold text-left transition-colors ${
+                        bridgeDest === c.id
+                          ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                          : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:bg-white/5'
+                      }`}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Route summary */}
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] divide-y divide-[var(--border)] text-[12px]">
+                <div className="flex justify-between px-4 py-2.5">
+                  <span className="text-[var(--subtle)]">Protocol</span>
+                  <span className="font-semibold text-[var(--ink)]">Circle CCTP v2</span>
+                </div>
+                <div className="flex justify-between px-4 py-2.5">
+                  <span className="text-[var(--subtle)]">Transfer speed</span>
+                  <span className="font-semibold text-emerald-400">Fast (~8–20 s)</span>
+                </div>
+                <div className="flex justify-between px-4 py-2.5">
+                  <span className="text-[var(--subtle)]">Destination</span>
+                  <span className="font-semibold text-[var(--ink)]">{destChain.label}</span>
+                </div>
+                <div className="flex justify-between px-4 py-2.5">
+                  <span className="text-[var(--subtle)]">Gas token (source)</span>
+                  <span className="font-semibold text-[var(--ink)]">USDC (Arc native)</span>
+                </div>
+                {(() => {
+                  const destUsdcAddr = getUsdc(destChain.chainId)?.address;
+                  return destUsdcAddr ? (
+                    <div className="flex flex-col gap-1 px-4 py-2.5">
+                      <span className="text-[var(--subtle)]">USDC on {destChain.label}</span>
+                      <a
+                        href={`${requireChain(destChain.chainId).explorerBase}/address/${destUsdcAddr}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="mono text-[10px] text-[var(--accent)] hover:text-[var(--accent-hover)] flex items-center gap-1 break-all min-w-0"
+                      >
+                        {destUsdcAddr} <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* ── Live step tracker ─── */}
+              {bridgeSteps.length > 0 && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)]">CCTP Steps</span>
+                    {bridgePhase === 'bridging' && <Loader2 className="w-3.5 h-3.5 text-[var(--accent)] animate-spin" />}
+                    {bridgePhase === 'done'     && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                    {bridgePhase === 'error'    && <AlertTriangle className="w-3.5 h-3.5 text-[var(--danger)]" />}
+                  </div>
+                  {bridgeSteps.map((s) => {
+                    const STEP_LABELS: Record<string, string> = {
+                      approve:          'Step 1 · Approve USDC',
+                      burn:             'Step 2 · Burn on Arc Mainnet',
+                      fetchAttestation: 'Step 3 · Circle Attestation',
+                      mint:             'Step 4 · Mint on Destination',
+                    };
+                    const isActive  = s.state === 'active';
+                    const isSuccess = s.state === 'success';
+                    const isError   = s.state === 'error';
+                    const isPending = s.state === 'pending';
+                    return (
+                      <div key={s.name} className={`px-4 py-3 border-b border-[var(--border)] last:border-0 flex items-start gap-3 ${isActive ? 'bg-[var(--accent)]/5' : ''}`}>
+                        <div className="shrink-0 mt-0.5">
+                          {isSuccess && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                          {isActive  && <Loader2     className="w-4 h-4 text-[var(--accent)] animate-spin" />}
+                          {isError   && <AlertTriangle className="w-4 h-4 text-[var(--danger)]" />}
+                          {isPending && <div className="w-4 h-4 rounded-full border border-white/20 bg-white/5" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-[12px] font-semibold ${isSuccess ? 'text-[var(--ink)]' : isError ? 'text-[var(--danger)]' : isActive ? 'text-[var(--accent)]' : 'text-[var(--subtle)]'}`}>
+                            {STEP_LABELS[s.name] ?? s.name}
+                          </p>
+                          {s.txHash && (
+                            <a
+                              href={s.explorerUrl ?? buildTxExplorerUrl(CHAIN_ID, s.txHash)}
+                              target="_blank" rel="noopener noreferrer"
+                              className="mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)] flex items-center gap-1 mt-0.5"
+                            >
+                              {s.txHash.slice(0, 16)}… <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                          {s.error && (
+                            <p className="text-[11px] text-[var(--danger)] mt-0.5">{s.error}</p>
+                          )}
+                        </div>
+                        <span className={`text-[9px] font-bold mono shrink-0 mt-0.5 px-1.5 py-0.5 rounded-full border ${
+                          isSuccess ? 'text-emerald-400 border-emerald-800/40 bg-emerald-950/40'
+                          : isError  ? 'text-[var(--danger)] border-[var(--danger)]/30 bg-[var(--danger)]/10'
+                          : isActive ? 'text-[var(--accent)] border-[var(--accent)]/30 bg-[var(--accent)]/10'
+                          : 'text-white/20 border-white/10 bg-white/5'
+                        }`}>
+                          {s.state.toUpperCase()}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Attestation note (step 3 active) */}
+              {bridgePhase === 'bridging' && bridgeSteps.find(s => s.name === 'fetchAttestation')?.state === 'active' && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[11px] text-[var(--subtle)] leading-relaxed">
+                  Circle is signing the burn proof on the IRIS attestation service. This typically takes 8–20 s in fast mode.{' '}
+                  <a href="https://iris-api-sandbox.circle.com" target="_blank" rel="noopener noreferrer"
+                    className="text-[var(--accent)] hover:text-[var(--accent-hover)] inline-flex items-center gap-1">
+                    View IRIS API <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+
+              {/* Error banner + retry */}
+              {bridgePhase === 'error' && (
+                <div className="rounded-xl border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-4 py-3 space-y-2">
+                  <p className="text-[12px] text-[var(--danger)] font-semibold">{bridgeError}</p>
+                  {lastBridgeResult && (
+                    <button
+                      onClick={() => void handleRetryBridge()}
+                      className="text-[11px] font-bold text-[var(--accent)] hover:text-[var(--accent-hover)] flex items-center gap-1.5"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Retry from failed step
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Success banner */}
+              {bridgePhase === 'done' && (
+                <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/30 px-4 py-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-[12px] text-emerald-400 font-semibold">Bridge confirmed — all 4 steps complete</span>
+                    </div>
+                  </div>
+                  {bridgeTxHash && (
+                    <a href={buildTxExplorerUrl(CHAIN_ID, bridgeTxHash)} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)]">
+                      Burn tx: {bridgeTxHash.slice(0, 18)}… <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                  <p className="text-[11px] text-[var(--subtle)]">USDC has been minted on <span className="text-[var(--ink-2)] font-medium">{destChain.label}</span>. Check your wallet on that network.</p>
+                </div>
+              )}
+
+              {/* CTA */}
+              {!walletAddress ? (
+                <div className="flex justify-center py-1">
+                  <ConnectKitButton label="Connect Wallet to Bridge" />
+                </div>
+              ) : (
+                <button
+                  onClick={() => void handleBridge()}
+                  disabled={!bridgeAmount || parseFloat(bridgeAmount || '0') <= 0 || bridgePhase === 'bridging'}
+                  className="w-full min-h-[48px] rounded-xl bg-[var(--accent)] text-[#0d1b2f] text-[13px] font-bold hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                >
+                  {bridgePhase === 'bridging'
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Bridging…</>
+                    : <><GitBranch className="w-4 h-4" /> Bridge Assets</>}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+
+      </main>
+
+      {/* Transaction History drawer */}
+      <TxHistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        records={txRecords}
+        onClear={clearHistory}
+      />
+    </div>
+  );
+}

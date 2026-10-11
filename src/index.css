@@ -1,0 +1,324 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ARCGENTIC — CSS CUSTOM PROPERTIES
+   Both :root (dark, default) and html.light (light mode) are defined here.
+   The theme toggle writes "light" to <html> classList + localStorage.
+───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Canvas */
+  --bg:           #0D0E12;
+  --bg-sub:       #181920;
+  --bg-gradient:
+    radial-gradient(ellipse 70% 50% at 20% 5%,  rgba(252,114,255,0.06) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 45% at 80% 95%, rgba(16,185,129,0.07)  0%, transparent 55%),
+    linear-gradient(180deg, #0D0E12 0%, #111318 100%);
+
+  /* Surfaces */
+  --surface:        #181920;
+  --surface-strong: #1f2130;
+  --surface-card:   #181920;
+  --surface-muted:  #12131a;
+  --surface-glass:  rgba(24,25,32,0.80);
+
+  /* Typography */
+  --ink:    #f1f2f6;
+  --ink-2:  #bcc5d6;
+  --muted:  #7a8aa0;
+  --subtle: #454e60;
+
+  /* Primary — Electric Magenta/Pink */
+  --primary:        #FC72FF;
+  --primary-dim:    rgba(252,114,255,0.12);
+  --primary-border: rgba(252,114,255,0.28);
+  --primary-glow:   0 0 0 1px rgba(252,114,255,0.22), 0 8px 32px rgba(252,114,255,0.14);
+
+  /* Secondary — Mint/Emerald for yield */
+  --emerald:        #10b981;
+  --emerald-bright: #00f5a0;
+  --emerald-dim:    rgba(16,185,129,0.12);
+  --emerald-border: rgba(16,185,129,0.25);
+  --emerald-glow:   0 0 0 1px rgba(16,185,129,0.20), 0 8px 32px rgba(16,185,129,0.10);
+
+  /* Violet */
+  --violet:         #6366f1;
+  --violet-dim:     rgba(99,102,241,0.12);
+  --violet-border:  rgba(99,102,241,0.25);
+  --violet-glow:    0 0 0 1px rgba(99,102,241,0.22), 0 8px 32px rgba(99,102,241,0.12);
+
+  /* Semantic */
+  --amber:      #f59e0b;
+  --amber-dim:  rgba(245,158,11,0.12);
+  --danger:     #ef4444;
+  --danger-dim: rgba(239,68,68,0.12);
+  --success:    var(--emerald);
+
+  /* Borders */
+  --border:         rgba(255,255,255,0.07);
+  --border-strong:  rgba(255,255,255,0.14);
+
+  /* Legacy compat */
+  --accent:          var(--primary);
+  --circle-purple:   var(--violet);
+  --glow-emerald:    var(--emerald-glow);
+  --glow-violet:     var(--violet-glow);
+  --border-emerald:  var(--emerald-border);
+  --border-violet:   var(--violet-border);
+  --border-glow:     var(--primary-border);
+  --border-amber:    rgba(245,158,11,0.22);
+  --border-danger:   rgba(239,68,68,0.22);
+  --glow-hero:       var(--primary-glow);
+  --glow-cyan:       var(--emerald-glow);
+  --glow-purple:     var(--violet-glow);
+  --glow-green:      var(--emerald-glow);
+  --glow-amber:      0 0 0 1px rgba(245,158,11,0.20), 0 8px 32px rgba(245,158,11,0.10);
+  --glow-danger:     0 0 0 1px rgba(239,68,68,0.20),  0 8px 32px rgba(239,68,68,0.10);
+  --warning:         var(--amber);
+  --circle-blue:     #0066cc;
+  --circle-blue-light: #60aff5;
+}
+
+/* ── Light mode overrides ──────────────────────────────────────────────────── */
+html.light {
+  --bg:           #F7F8FA;
+  --bg-sub:       #FFFFFF;
+  --bg-gradient:
+    radial-gradient(ellipse 60% 40% at 10% 0%,  rgba(252,114,255,0.05) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 90% 100%,rgba(16,185,129,0.05)  0%, transparent 55%),
+    linear-gradient(180deg, #F7F8FA 0%, #eef0f5 100%);
+
+  --surface:        #FFFFFF;
+  --surface-strong: #F0F1F5;
+  --surface-card:   #FFFFFF;
+  --surface-muted:  #F3F4F8;
+  --surface-glass:  rgba(255,255,255,0.88);
+
+  --ink:    #0d0e12;
+  --ink-2:  #3a4455;
+  --muted:  #6b7688;
+  --subtle: #a8b4c4;
+
+  --border:        #E8ECF2;
+  --border-strong: #c8d0dc;
+
+  --primary-dim:    rgba(252,114,255,0.08);
+  --primary-border: rgba(252,114,255,0.30);
+  --emerald-dim:    rgba(16,185,129,0.08);
+  --violet-dim:     rgba(99,102,241,0.08);
+  --amber-dim:      rgba(245,158,11,0.08);
+  --danger-dim:     rgba(239,68,68,0.08);
+}
+
+/* ── Reset ───────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font-family: 'Inter', 'Space Grotesk', sans-serif;
+  min-height: 100dvh;
+  background: var(--bg);
+  background-image: var(--bg-gradient);
+  background-attachment: fixed;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  transition: background-color 0.22s, color 0.22s;
+}
+
+/* ── Font utilities ───────────────────────────────────────────────────────────── */
+.display { font-family: 'Inter', sans-serif; font-weight: 800; letter-spacing: -0.03em; }
+.mono    { font-family: 'JetBrains Mono', Menlo, monospace; }
+.tabular { font-variant-numeric: tabular-nums; }
+.syne    { font-family: 'Inter', sans-serif; font-weight: 700; }
+
+/* ── Surface utilities ────────────────────────────────────────────────────────── */
+.glass        { background: var(--surface-glass); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.glass-strong { background: var(--surface);       backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); }
+
+/* ── ArcGentic card — Uniswap-style rounded solid card ───────────────────────── */
+.ag-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.ag-card:hover { border-color: var(--border-strong); }
+
+.ag-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--primary) 50%, transparent 100%);
+  opacity: 0.22;
+  pointer-events: none;
+}
+.ag-card-violet::before {
+  background: linear-gradient(90deg, transparent 0%, var(--violet) 50%, transparent 100%);
+}
+.ag-card-amber::before {
+  background: linear-gradient(90deg, transparent 0%, var(--amber) 50%, transparent 100%);
+}
+.ag-card-emerald::before {
+  background: linear-gradient(90deg, transparent 0%, var(--emerald) 50%, transparent 100%);
+}
+
+/* ── Pill button — Uniswap-style smooth gradient ─────────────────────────────── */
+.btn-primary {
+  background: linear-gradient(135deg, #d946ef 0%, #FC72FF 60%, #f0abfc 100%);
+  color: #fff;
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  border: none;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px rgba(252,114,255,0.40), 0 4px 20px rgba(252,114,255,0.22);
+  transition: all 0.18s;
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(252,114,255,0.70), 0 6px 28px rgba(252,114,255,0.35);
+  transform: translateY(-1px) scale(1.01);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0) scale(1); }
+.btn-primary:disabled { opacity: 0.40; cursor: not-allowed; }
+
+/* Alias — same as btn-primary, for button labels that say "neon-primary" */
+.btn-neon-primary { background: linear-gradient(135deg, #d946ef 0%, #FC72FF 60%, #f0abfc 100%); color: #fff; font-weight: 700; border: none; border-radius: 9999px; box-shadow: 0 0 0 1px rgba(252,114,255,0.40), 0 4px 20px rgba(252,114,255,0.22); transition: all 0.18s; }
+.btn-neon-primary:hover:not(:disabled) { box-shadow: 0 0 0 1px rgba(252,114,255,0.70), 0 6px 28px rgba(252,114,255,0.35); transform: translateY(-1px) scale(1.01); }
+.btn-neon-primary:active:not(:disabled) { transform: translateY(0) scale(1); }
+.btn-neon-primary:disabled { opacity: 0.40; cursor: not-allowed; }
+
+/* Legacy aliases */
+.btn-neon-emerald {
+  background: linear-gradient(135deg, #0d9e6e 0%, #10b981 60%, #00f5a0 100%);
+  color: #fff;
+  font-weight: 700;
+  border: none;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px rgba(16,185,129,0.40), 0 4px 20px rgba(16,185,129,0.22);
+  transition: all 0.18s;
+}
+.btn-neon-emerald:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(0,245,160,0.60), 0 6px 28px rgba(16,185,129,0.38);
+  transform: translateY(-1px) scale(1.01);
+}
+.btn-neon-emerald:active:not(:disabled) { transform: translateY(0) scale(1); }
+.btn-neon-emerald:disabled { opacity: 0.40; cursor: not-allowed; }
+
+.btn-neon-violet {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 60%, #818cf8 100%);
+  color: #fff;
+  font-weight: 700;
+  border: none;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.40), 0 4px 20px rgba(99,102,241,0.22);
+  transition: all 0.18s;
+}
+.btn-neon-violet:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(129,140,248,0.60), 0 6px 28px rgba(99,102,241,0.38);
+  transform: translateY(-1px) scale(1.01);
+}
+.btn-neon-violet:disabled { opacity: 0.40; cursor: not-allowed; }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 600;
+  border-radius: 9999px;
+  transition: all 0.15s;
+}
+.btn-ghost:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-dim); }
+
+/* ── Status pills ────────────────────────────────────────────────────────────── */
+.pill-pink    { background: rgba(252,114,255,0.10); border: 1px solid rgba(252,114,255,0.28); color: #f0abfc; }
+.pill-emerald { background: rgba(16,185,129,0.10);  border: 1px solid rgba(16,185,129,0.28);  color: #34d399; }
+.pill-violet  { background: rgba(99,102,241,0.10);  border: 1px solid rgba(99,102,241,0.28);  color: #a5b4fc; }
+.pill-amber   { background: rgba(245,158,11,0.10);  border: 1px solid rgba(245,158,11,0.28);  color: #fcd34d; }
+.pill-red     { background: rgba(239,68,68,0.10);   border: 1px solid rgba(239,68,68,0.28);   color: #fca5a5; }
+.pill-grey    { background: rgba(128,128,128,0.10); border: 1px solid rgba(128,128,128,0.16); color: var(--muted); }
+
+/* ── Input ───────────────────────────────────────────────────────────────────── */
+.ag-input {
+  background: var(--surface-muted);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  padding: 12px 16px;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.ag-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(252,114,255,0.12);
+}
+.ag-input::placeholder { color: var(--subtle); }
+
+/* ── Swap-style container (large rounded, Uniswap-feel) ──────────────────────── */
+.swap-container {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 4px;
+}
+.swap-field {
+  background: var(--surface-muted);
+  border-radius: 20px;
+  padding: 16px 18px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.swap-field:focus-within { border-color: var(--primary-border); }
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar             { width: 4px; height: 4px; }
+::-webkit-scrollbar-track       { background: transparent; }
+::-webkit-scrollbar-thumb       { background: rgba(252,114,255,0.20); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(252,114,255,0.40); }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Animations ──────────────────────────────────────────────────────────────── */
+@keyframes ping-slow {
+  75%, 100% { transform: scale(2.2); opacity: 0; }
+}
+.animate-ping-slow { animation: ping-slow 2.4s cubic-bezier(0,0,0.2,1) infinite; }
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1.0; }
+}
+.animate-glow-pulse { animation: glow-pulse 3s ease-in-out infinite; }
+
+@keyframes float-up {
+  0%   { transform: translateY(8px); opacity: 0; }
+  100% { transform: translateY(0);   opacity: 1; }
+}
+.animate-float-up { animation: float-up 0.35s ease-out forwards; }
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, var(--primary) 0%, #f0abfc 50%, var(--primary) 100%);
+  background-size: 200% auto;
+  animation: shimmer 2.5s linear infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Theme transition ────────────────────────────────────────────────────────── */
+.ag-card, .btn-ghost, .ag-input, header, main { transition: background-color 0.22s, border-color 0.22s, color 0.22s; }
