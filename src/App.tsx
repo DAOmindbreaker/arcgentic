@@ -21,6 +21,8 @@ import { TxHistoryDrawer, useTxHistory } from '@/components/TxHistory';
 import SwapCard from '@/components/SwapCard';
 import type { TxRecord } from '@/components/TxHistory';
 import { EcosystemSection } from '@/components/EcosystemFooter';
+import { USDCBalance } from '@/components/USDCBalance';
+import { LandingPage } from '@/components/LandingPage';
 
 // ── AppKit instance (keyless — no kitKey in browser) ──────────────────────────
 const appKit = new AppKit();
@@ -155,10 +157,10 @@ function useTheme() {
   const [isDark, setIsDark] = useState<boolean>(() => {
     const stored = localStorage.getItem('arcgentic-theme');
     if (stored) return stored === 'dark';
-    return true; // default dark
+    return false; // default light
   });
   useEffect(() => {
-    document.documentElement.classList.toggle('light', !isDark);
+    document.documentElement.classList.toggle('dark', isDark);
     localStorage.setItem('arcgentic-theme', isDark ? 'dark' : 'light');
   }, [isDark]);
   return { isDark, toggle: () => setIsDark(d => !d) };
@@ -169,7 +171,7 @@ function BudgetBar({ spent, limit }: { spent: bigint; limit: bigint }) {
   const pct = limit === 0n ? 0 : Number((spent * 10000n) / limit) / 100;
   const color = pct >= 90 ? 'bg-[var(--danger)]' : pct >= 60 ? 'bg-[var(--warning)]' : 'bg-[var(--success)]';
   return (
-    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+    <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
       <div
         className={`h-full rounded-full transition-all duration-700 ${color}`}
         style={{ width: `${Math.min(pct, 100)}%`, boxShadow: pct >= 90 ? 'var(--glow-danger)' : pct < 60 ? 'var(--glow-green)' : 'none' }}
@@ -444,6 +446,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function App() {
+  const [showApp, setShowApp] = useState(false);
   const [tab, setTab] = useState<Tab>('dashboard');
   const [agentActive, setAgentActive] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([{
@@ -766,10 +769,14 @@ export default function App() {
     ],
     query: { refetchInterval: 8000 },
   });
-  const { data: vaultUsdcBalance } = useReadContract({
+  const {
+    data: vaultUsdcBalance,
+    isError: isBalanceError,
+    refetch: refetchBalance,
+  } = useReadContract({
     address: USDC_ADDRESS, abi: erc20Abi, functionName: 'balanceOf',
     args: [VAULT_ADDRESS], chainId: CHAIN_ID,
-    query: { refetchInterval: 8000 },
+    query: { refetchInterval: 8000, retry: 2 },
   });
 
   const dailyLimit = vaultData?.[0].result;
@@ -1125,65 +1132,77 @@ export default function App() {
 
   const loading = vaultLoading;
 
+  if (!showApp) {
+    return <LandingPage onLaunch={() => setShowApp(true)} />;
+  }
+
   return (
     <div className="min-h-dvh" style={{ background: 'var(--bg-gradient)' }}>
 
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 border-b border-[var(--border)] backdrop-blur-xl bg-[var(--surface-glass)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-40 border-b border-black/[0.06] backdrop-blur-md bg-white/90">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            {/* Brand logo mark */}
-            <div className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-              style={{ background: 'linear-gradient(135deg, rgba(252,114,255,0.15) 0%, rgba(252,114,255,0.05) 100%)', border: '1px solid rgba(252,114,255,0.28)', boxShadow: '0 0 16px rgba(252,114,255,0.12)' }}>
-              <Bot className="w-5 h-5" style={{ color: '#FC72FF' }} />
-              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[var(--bg)]" style={{ background: '#FC72FF' }} />
+            {/* Brand logo — glowing gradient container */}
+            <div className="relative w-9 h-9 rounded-xl shrink-0 overflow-hidden"
+              style={{ background: 'linear-gradient(135deg,#10b981,#0ea5e9,#6366f1)', boxShadow: '0 0 14px 2px rgba(16,185,129,0.35), 0 0 28px 4px rgba(99,102,241,0.2)' }}>
+              <img
+                src="https://raw.githubusercontent.com/DAOmindbreaker/arcgentic/main/public/logo.png"
+                alt="ArcGentic"
+                width={36}
+                height={36}
+                className="w-full h-full object-contain"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="syne text-[15px] font-bold leading-tight" style={{ background: 'linear-gradient(90deg,#FC72FF,#f0abfc,#10b981)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                  ArcGentic
-                </h1>
-                <span className="hidden sm:inline text-[var(--subtle)] text-[12px]">·</span>
-                <span className="hidden sm:inline text-[11px] text-[var(--muted)] font-medium">Autonomous Treasury</span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border border-[rgba(99,102,241,0.30)] bg-[rgba(99,102,241,0.08)] text-[#a5b4fc] tracking-wide syne">
-                  <span className="w-1 h-1 rounded-full bg-[#6366f1]" />
-                  CIRCLE USDC
-                </span>
-              </div>
-              <p className="text-[9px] text-[var(--subtle)] tracking-widest uppercase mt-0.5 syne">Arc L1 · CCTP v2 · AgentTreasuryVault</p>
+            {/* Brand name + badges */}
+            <div className="flex items-center gap-2">
+              <h1
+                className="font-extrabold text-[16px] tracking-tight bg-clip-text text-transparent"
+                style={{ backgroundImage: 'linear-gradient(90deg,#10b981 0%,#0ea5e9 50%,#6366f1 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+              >ArcGentic</h1>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tracking-widest bg-gray-100 text-gray-500 border border-gray-200 uppercase">
+                dApp
+              </span>
+              <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Arc Mainnet
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Agent status pill + toggle — hidden on xs */}
+            {/* Agent status pill + toggle */}
             <div className="hidden sm:flex items-center gap-1.5">
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold border ${
-                agentActive ? 'bg-emerald-950/50 border-emerald-700/40 text-emerald-400' : 'bg-amber-950/50 border-amber-700/40 text-amber-400'
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+                agentActive
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  : 'bg-amber-50 border-amber-200 text-amber-700'
               }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${agentActive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${agentActive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
                 {agentActive ? 'ACTIVE' : 'PAUSED'}
               </div>
               <button onClick={toggleAgent} title={agentActive ? 'Pause agent' : 'Resume agent'}
-                className="p-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:bg-white/10 transition-colors">
-                {agentActive ? <Pause className="w-3.5 h-3.5 text-[var(--danger)]" /> : <Play className="w-3.5 h-3.5 fill-current text-[var(--success)]" />}
+                className="p-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors">
+                {agentActive ? <Pause className="w-3.5 h-3.5 text-red-500" /> : <Play className="w-3.5 h-3.5 fill-current text-emerald-600" />}
               </button>
             </div>
 
-            {/* Connected wallet chip — shows address + USDC balance */}
+            {/* Connected wallet chip */}
             {walletAddress && (
-              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[11px]">
-                <Wallet className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
-                <span className="mono text-[var(--ink-2)]">{walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}</span>
+              <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-lg border border-gray-200 bg-gray-50 text-[11px]">
+                <Wallet className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                <span className="mono text-gray-700">{walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}</span>
                 {walletUsdcBalance !== undefined && (
                   <>
-                    <span className="text-[var(--border-strong)]">·</span>
+                    <span className="text-gray-300">·</span>
                     <TokenUSDC variant="branded" size={12} />
-                    <span className="tabular text-[var(--ink-2)]">
+                    <span className="tabular text-gray-700">
                       {Amount.fromRaw(walletUsdcBalance, usdcFact.decimals).toFixed(2)}
                     </span>
                   </>
                 )}
                 {walletChainId && walletChainId !== CHAIN_ID && (
-                  <span className="text-[10px] font-bold text-amber-400 border border-amber-700/40 bg-amber-950/40 px-1.5 py-0.5 rounded-full">Wrong network</span>
+                  <span className="text-[10px] font-bold text-amber-700 border border-amber-200 bg-amber-50 px-1.5 py-0.5 rounded-full">Wrong network</span>
                 )}
               </div>
             )}
@@ -1191,12 +1210,12 @@ export default function App() {
             {/* History button */}
             <button
               onClick={() => setHistoryOpen(true)}
-              className="relative p-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:bg-white/10 transition-colors"
+              className="relative p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
               title="Transaction History"
             >
-              <History className="w-4 h-4 text-[var(--subtle)]" />
+              <History className="w-4 h-4 text-gray-500" />
               {txRecords.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center" style={{ background: '#FC72FF' }}>
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-sky-600 text-white text-[9px] font-bold flex items-center justify-center">
                   {txRecords.length > 99 ? '99' : txRecords.length}
                 </span>
               )}
@@ -1206,7 +1225,7 @@ export default function App() {
             <button
               onClick={toggleTheme}
               title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-              className="p-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-strong)] hover:border-[var(--primary-border)] transition-all"
+              className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
             >
               {isDark
                 ? <Sun className="w-4 h-4 text-[var(--amber)]" />
@@ -1225,8 +1244,8 @@ export default function App() {
               onClick={() => setTab(t.id)}
               className={`flex items-center gap-1.5 px-4 py-2.5 text-[11px] font-semibold border-b-2 whitespace-nowrap transition-colors ${
                 tab === t.id
-                  ? 'border-[#FC72FF] text-[#FC72FF]'
-                  : 'border-transparent text-[var(--subtle)] hover:text-[var(--primary)]'
+                  ? 'border-sky-600 text-sky-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-900'
               }`}
             >
               <t.icon className="w-3.5 h-3.5" />
@@ -1244,16 +1263,16 @@ export default function App() {
 
         {/* Wrong-chain banner — shown on every tab */}
         {walletAddress && walletChainId && walletChainId !== CHAIN_ID && (
-          <div className="mb-5 rounded-xl border border-amber-700/50 bg-amber-950/30 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+          <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-2.5">
-              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span className="text-[12px] text-amber-300">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="text-[12px] text-amber-800">
                 Your wallet is on the wrong network. Switch to <strong>Arc Mainnet</strong> to sign transactions.
               </span>
             </div>
             <button
               onClick={() => void switchChainAsync({ chainId: CHAIN_ID })}
-              className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-500 text-black text-[12px] font-bold hover:bg-amber-400 transition-colors shrink-0"
+              className="min-h-[40px] px-4 py-2 rounded-lg bg-amber-600 text-white text-[12px] font-semibold hover:bg-amber-700 transition-colors shrink-0"
             >
               Switch to Arc Mainnet
             </button>
@@ -1318,7 +1337,12 @@ export default function App() {
                     <TokenUSDC variant="branded" size={16} />
                     <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--subtle)]">Vault USDC Balance</span>
                   </div>
-                  <LerpedBalance raw={vaultUsdcBalance} loading={loading} decimals={usdcFact.decimals} />
+                  <USDCBalance
+                    rawValue={vaultUsdcBalance}
+                    isLoading={loading}
+                    isError={isBalanceError}
+                    onRefresh={refetchBalance}
+                  />
                 </div>
 
                 {/* Vault address + budget in one row */}
