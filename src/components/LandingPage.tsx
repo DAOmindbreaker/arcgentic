@@ -71,43 +71,90 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
       </header>
 
       {/* Hero Section */}
-      <section className="relative pt-20 pb-16 px-6 max-w-5xl mx-auto text-center space-y-8">
-        {/* Sci-fi portal ring background */}
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center -z-10 overflow-hidden">
-          {/* Inner radiant core */}
-          <div className="absolute w-[480px] h-[480px] rounded-full bg-gradient-to-tr from-cyan-400/20 via-blue-500/20 to-indigo-500/10 blur-3xl" />
-          {/* Middle ring — counter-clockwise */}
-          <svg
-            className="absolute w-[520px] h-[520px] opacity-30"
-            style={{ animation: 'spin-reverse 18s linear infinite' }}
-            viewBox="0 0 520 520"
-            fill="none"
-          >
-            <circle cx="260" cy="260" r="240" stroke="url(#grad-mid)" strokeWidth="1.5" strokeDasharray="6 14" />
+      <section className="relative pt-20 pb-16 px-6 max-w-5xl mx-auto text-center space-y-8 overflow-visible">
+        {/* ── Sci-Fi Cyber Guardrail Portal Ring ─────────────────────────────── */}
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center -z-10 overflow-visible">
+
+          {/* Core ambient glow */}
+          <div className="absolute w-[600px] h-[600px] rounded-full"
+            style={{ background: 'radial-gradient(circle, rgba(6,182,212,0.25) 0%, rgba(59,130,246,0.15) 35%, transparent 70%)', filter: 'blur(40px)' }} />
+
+          {/* Inner energy core — counter-clockwise, 14s */}
+          <svg className="absolute w-[340px] h-[340px]"
+            style={{ animation: 'spin-reverse 14s linear infinite', filter: 'drop-shadow(0 0 12px rgba(16,185,129,0.7))' }}
+            viewBox="0 0 340 340" fill="none">
             <defs>
-              <linearGradient id="grad-mid" x1="0" y1="0" x2="520" y2="520" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#22d3ee" />
-                <stop offset="50%" stopColor="#6366f1" stopOpacity="0.6" />
-                <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
+              <linearGradient id="lg-inner" x1="0" y1="0" x2="340" y2="340" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#10b981" />
+                <stop offset="50%" stopColor="#06b6d4" stopOpacity="0.8" />
+                <stop offset="100%" stopColor="#10b981" stopOpacity="0.2" />
               </linearGradient>
             </defs>
+            <circle cx="170" cy="170" r="155" stroke="url(#lg-inner)" strokeWidth="2" strokeDasharray="8 6" />
+            {/* Tick marks = guardrail limits */}
+            {[0,45,90,135,180,225,270,315].map((deg) => {
+              const r = 155, cx = 170, cy = 170;
+              const rad = (deg * Math.PI) / 180;
+              const x1 = cx + (r - 8) * Math.cos(rad), y1 = cy + (r - 8) * Math.sin(rad);
+              const x2 = cx + (r + 6) * Math.cos(rad), y2 = cy + (r + 6) * Math.sin(rad);
+              return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#10b981" strokeWidth="2" strokeOpacity="0.8" />;
+            })}
           </svg>
-          {/* Outer ring — clockwise */}
-          <svg
-            className="absolute w-[660px] h-[660px] opacity-20"
-            style={{ animation: 'spin-slow 28s linear infinite' }}
-            viewBox="0 0 660 660"
-            fill="none"
-          >
-            <circle cx="330" cy="330" r="310" stroke="url(#grad-outer)" strokeWidth="1" strokeDasharray="3 22" />
+
+          {/* Middle orbital ring — clockwise, 22s */}
+          <svg className="absolute w-[500px] h-[500px]"
+            style={{ animation: 'spin-slow 22s linear infinite', filter: 'drop-shadow(0 0 20px rgba(59,130,246,0.55))' }}
+            viewBox="0 0 500 500" fill="none">
             <defs>
-              <linearGradient id="grad-outer" x1="0" y1="0" x2="660" y2="660" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#0ea5e9" />
-                <stop offset="40%" stopColor="#818cf8" stopOpacity="0.5" />
-                <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0" />
+              <linearGradient id="lg-mid" x1="0" y1="0" x2="500" y2="500" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#3b82f6" />
+                <stop offset="40%" stopColor="#06b6d4" stopOpacity="0.9" />
+                <stop offset="70%" stopColor="#6366f1" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.1" />
               </linearGradient>
             </defs>
+            <circle cx="250" cy="250" r="230" stroke="url(#lg-mid)" strokeWidth="1.5" strokeDasharray="12 8" />
+            {/* Particle nodes orbiting the ring */}
+            {[30, 110, 190, 270, 350].map((deg) => {
+              const r = 230, cx = 250, cy = 250;
+              const rad = (deg * Math.PI) / 180;
+              const x = cx + r * Math.cos(rad), y = cy + r * Math.sin(rad);
+              return (
+                <g key={deg}>
+                  <circle cx={x} cy={y} r="5" fill="#06b6d4" fillOpacity="0.9" />
+                  <circle cx={x} cy={y} r="9" fill="#06b6d4" fillOpacity="0.25" />
+                </g>
+              );
+            })}
           </svg>
+
+          {/* Outer guardrail ring — counter-clockwise, 38s */}
+          <svg className="absolute w-[700px] h-[700px]"
+            style={{ animation: 'spin-reverse 38s linear infinite', filter: 'drop-shadow(0 0 18px rgba(6,182,212,0.4))' }}
+            viewBox="0 0 700 700" fill="none">
+            <defs>
+              <linearGradient id="lg-outer" x1="0" y1="0" x2="700" y2="700" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#06b6d4" />
+                <stop offset="30%" stopColor="#3b82f6" stopOpacity="0.7" />
+                <stop offset="60%" stopColor="#6366f1" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.1" />
+              </linearGradient>
+            </defs>
+            <circle cx="350" cy="350" r="330" stroke="url(#lg-outer)" strokeWidth="1" strokeDasharray="4 28" />
+            {/* Larger particle nodes on outer orbit */}
+            {[60, 150, 240, 330].map((deg) => {
+              const r = 330, cx = 350, cy = 350;
+              const rad = (deg * Math.PI) / 180;
+              const x = cx + r * Math.cos(rad), y = cy + r * Math.sin(rad);
+              return (
+                <g key={deg}>
+                  <circle cx={x} cy={y} r="4" fill="#10b981" fillOpacity="0.85" />
+                  <circle cx={x} cy={y} r="8" fill="#10b981" fillOpacity="0.2" />
+                </g>
+              );
+            })}
+          </svg>
+
         </div>
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white border border-gray-200 shadow-2xs text-xs font-medium text-gray-700">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
