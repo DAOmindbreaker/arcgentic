@@ -22,8 +22,9 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
     <div className="min-h-screen bg-[#F9FAFB] text-[#111827] font-sans antialiased selection:bg-sky-100 selection:text-sky-900">
       
       {/* Navbar */}
-      <header className="sticky top-0 z-50 bg-[#F9FAFB]/80 backdrop-blur-md border-b border-black/[0.05]">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-50 bg-[#F9FAFB]/90 backdrop-blur-md border-b border-black/[0.05]">
+        <div className="max-w-7xl mx-auto px-6 h-16 grid grid-cols-3 items-center">
+          {/* Left: Logo */}
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-xl shadow-sm overflow-hidden shrink-0 bg-sky-50 border border-sky-100">
               <img
@@ -43,22 +44,24 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
                 }}
               />
             </div>
-            <span className="font-bold text-lg tracking-tight text-[#111827]">ArcGentic</span>
-            <span className="hidden sm:inline-block px-2.5 py-0.5 text-[11px] font-mono font-medium bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">
+            <span className="font-bold text-base tracking-tight text-[#111827]">ArcGentic</span>
+            <span className="hidden sm:inline-block px-2.5 py-0.5 text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">
               Arc Mainnet
             </span>
           </div>
 
-          <nav className="hidden md:flex items-center space-x-8 text-sm font-medium text-gray-600">
-            <a href="#features" className="hover:text-black transition-colors">Features</a>
-            <a href="#solutions" className="hover:text-black transition-colors">Solutions</a>
-            <a href="#security" className="hover:text-black transition-colors">Security</a>
+          {/* Center: Nav links */}
+          <nav className="hidden md:flex items-center justify-center space-x-1">
+            <a href="#features" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all">Features</a>
+            <a href="#solutions" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all">Solutions</a>
+            <a href="#security" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all">Security</a>
           </nav>
 
-          <div className="flex items-center space-x-3">
+          {/* Right: CTA */}
+          <div className="flex items-center justify-end">
             <button
               onClick={onLaunch}
-              className="px-4 py-2 text-sm font-semibold text-white bg-[#111827] hover:bg-black rounded-lg transition-all shadow-sm hover:shadow flex items-center space-x-2"
+              className="px-4 py-2 text-sm font-semibold text-white bg-[#111827] hover:bg-black rounded-lg transition-all shadow-sm flex items-center space-x-2"
             >
               <span>Launch App</span>
               <ArrowRight className="w-4 h-4" />
@@ -68,7 +71,44 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
       </header>
 
       {/* Hero Section */}
-      <section className="pt-20 pb-16 px-6 max-w-5xl mx-auto text-center space-y-8">
+      <section className="relative pt-20 pb-16 px-6 max-w-5xl mx-auto text-center space-y-8">
+        {/* Sci-fi portal ring background */}
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center -z-10 overflow-hidden">
+          {/* Inner radiant core */}
+          <div className="absolute w-[480px] h-[480px] rounded-full bg-gradient-to-tr from-cyan-400/20 via-blue-500/20 to-indigo-500/10 blur-3xl" />
+          {/* Middle ring — counter-clockwise */}
+          <svg
+            className="absolute w-[520px] h-[520px] opacity-30"
+            style={{ animation: 'spin-reverse 18s linear infinite' }}
+            viewBox="0 0 520 520"
+            fill="none"
+          >
+            <circle cx="260" cy="260" r="240" stroke="url(#grad-mid)" strokeWidth="1.5" strokeDasharray="6 14" />
+            <defs>
+              <linearGradient id="grad-mid" x1="0" y1="0" x2="520" y2="520" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#22d3ee" />
+                <stop offset="50%" stopColor="#6366f1" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+          </svg>
+          {/* Outer ring — clockwise */}
+          <svg
+            className="absolute w-[660px] h-[660px] opacity-20"
+            style={{ animation: 'spin-slow 28s linear infinite' }}
+            viewBox="0 0 660 660"
+            fill="none"
+          >
+            <circle cx="330" cy="330" r="310" stroke="url(#grad-outer)" strokeWidth="1" strokeDasharray="3 22" />
+            <defs>
+              <linearGradient id="grad-outer" x1="0" y1="0" x2="660" y2="660" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#0ea5e9" />
+                <stop offset="40%" stopColor="#818cf8" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white border border-gray-200 shadow-2xs text-xs font-medium text-gray-700">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <span>Autonomous Corporate Treasury on Arc L1</span>
