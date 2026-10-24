@@ -17,7 +17,7 @@ import {
 import { TokenUSDC } from '@web3icons/react';
 import { Amount, formatUsdc } from '@/onchain-money';
 import { getUsdc, requireChain, buildTxExplorerUrl } from '@/onchain-facts';
-import { TxHistoryDrawer, useTxHistory } from '@/components/TxHistory';
+import { TxHistoryDrawer, useTxHistory, usePendingReceiptWatcher } from '@/components/TxHistory';
 import SwapCard from '@/components/SwapCard';
 import type { TxRecord } from '@/components/TxHistory';
 import { EcosystemSection } from '@/components/EcosystemFooter';
@@ -463,6 +463,8 @@ export default function App() {
   // ── Transaction history ───────────────────────────────────────────────────────
   const [historyOpen, setHistoryOpen] = useState(false);
   const { records: txRecords, addTxRecord, updateTxStatus, clearHistory } = useTxHistory(walletAddress);
+  // Auto-resolve pending tx statuses by polling Arc Mainnet receipt
+  usePendingReceiptWatcher(txRecords, walletAddress, updateTxStatus);
 
   /** Build a stable record id from txHash or a local id */
   function txId(base: string) { return `${base}-${Date.now()}`; }

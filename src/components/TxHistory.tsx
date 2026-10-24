@@ -5,14 +5,15 @@
  * Records are added by the parent via addTxRecord() from useTxHistory().
  */
 
-import { useState, useEffect, useCallback, startTransition } from 'react';
+import { useState, useEffect, useCallback, useRef, startTransition } from 'react';
 import {
   X, ArrowDownUp, GitBranch, Send, Settings,
   CheckCircle2, AlertTriangle, Clock, Copy,
   Download, Trash2, ExternalLink, History,
   ChevronRight,
 } from 'lucide-react';
-import { buildTxExplorerUrl } from '@/onchain-facts';
+import { createPublicClient, http } from 'viem';
+import { buildTxExplorerUrl, ARC_MAINNET_CHAIN_ID } from '@/onchain-facts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,81 @@ export function useTxHistory(walletAddress: string | undefined) {
   }, [walletAddress]);
 
   return { records, addTxRecord, updateTxStatus, clearHistory };
+}
+
+// ── Pending receipt watcher ───────────────────────────────────────────────────
+
+/**
+ * Polls getTransactionReceipt every 4s for every pending record that has a
+ * txHash. On success/reverted, calls updateTxStatus and persists to localStorage.
+ * Self-contained — no changes to App.tsx needed.
+ */
+export function usePendingReceiptWatcher(
+  records: TxRecord[],
+  walletAddress: string | undefined,
+  updateTxStatus: (id: string, status: TxStatus, txHash?: string) => void,
+) {
+  // stable publicClient for Arc Mainnet
+  const clientRef = useRef(
+    createPublicClient({
+      chain: {
+        id: ARC_MAINNET_CHAIN_ID,
+        name: 'Arc',
+        nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
+        rpcUrls: { default: { http: ['https://rpc.mainnet.arc.io'] } },
+      },
+      transport: http('https://rpc.mainnet.arc.io'),
+    })
+  );
+
+  // Track which ids are currently being polled so we don't stack intervals
+  const pollingRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const pending = records.filter(
+      r => r.status === 'pending' && r.txHash && !pollingRef.current.has(r.id)
+    );
+    if (pending.length === 0) return;
+
+    const timers: ReturnType<typeof setInterval>[] = [];
+
+    for (const rec of pending) {
+      pollingRef.current.add(rec.id);
+      const hash = rec.txHash as `0x${string}`;
+
+      const tid = setInterval(async () => {
+        try {
+          const receipt = await clientRef.current.getTransactionReceipt({ hash });
+          if (receipt.status === 'success' || receipt.status === 'reverted') {
+            const next: TxStatus = receipt.status === 'success' ? 'confirmed' : 'failed';
+            updateTxStatus(rec.id, next);
+            // Also write directly to localStorage so refresh sessions see it
+            if (walletAddress) {
+              try {
+                const key = `arc-tx-history-${walletAddress.toLowerCase()}`;
+                const raw = localStorage.getItem(key);
+                if (raw) {
+                  const arr = JSON.parse(raw) as TxRecord[];
+                  const idx = arr.findIndex(r => r.id === rec.id);
+                  if (idx !== -1) { arr[idx] = { ...arr[idx], status: next }; }
+                  localStorage.setItem(key, JSON.stringify(arr));
+                }
+              } catch { /* quota / parse error */ }
+            }
+            clearInterval(tid);
+            pollingRef.current.delete(rec.id);
+          }
+        } catch {
+          // Receipt not yet available — keep polling
+        }
+      }, 4000);
+
+      timers.push(tid);
+    }
+
+    return () => { timers.forEach(clearInterval); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records.filter(r => r.status === 'pending').map(r => r.id).join(','), walletAddress]);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
