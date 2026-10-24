@@ -305,13 +305,13 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
 
       {/* ── How It Works + Live Stream ── */}
       <section id="how-it-works" className="py-24 px-6 relative"
-        style={{ background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        style={{ background: 'rgba(17,24,39,0.02)', borderTop: '1px solid rgba(17,24,39,0.07)', borderBottom: '1px solid rgba(17,24,39,0.07)' }}>
         <div className="max-w-7xl mx-auto">
           <Reveal>
             <div className="text-center mb-16 space-y-3">
               <div className="text-xs font-mono tracking-[0.2em] uppercase" style={{ color: '#06b6d4' }}>Don't take our word for it</div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-white">Watch it work in real time</h2>
-              <p className="text-base max-w-xl mx-auto" style={{ color: '#64748b' }}>Four on-chain steps. One self-driving treasury. No human in the loop.</p>
+              <h2 className="text-3xl sm:text-4xl font-bold" style={{ color: '#111827' }}>Watch it work in real time</h2>
+              <p className="text-base max-w-xl mx-auto" style={{ color: '#6B7280' }}>Four on-chain steps. One self-driving treasury. No human in the loop.</p>
             </div>
           </Reveal>
 
@@ -323,21 +323,21 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
                   className="w-full text-left rounded-2xl border p-5 transition-all duration-300"
                   style={{
                     background: activeStep === i ? `rgba(${step.color === '#06b6d4' ? '6,182,212' : step.color === '#10b981' ? '16,185,129' : step.color === '#3b82f6' ? '59,130,246' : '139,92,246'},0.08)` : 'transparent',
-                    borderColor: activeStep === i ? step.color + '50' : 'rgba(255,255,255,0.06)',
+                    borderColor: activeStep === i ? step.color + '50' : 'rgba(17,24,39,0.1)',
                     transform: activeStep === i ? 'translateX(4px)' : '',
                   }}>
                   <div className="flex items-start gap-4">
                     <div className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0"
-                      style={{ background: activeStep === i ? step.color + '20' : 'rgba(255,255,255,0.04)', color: step.color, border: `1px solid ${step.color}30` }}>
+                      style={{ background: activeStep === i ? step.color + '20' : 'rgba(17,24,39,0.05)', color: step.color, border: `1px solid ${step.color}30` }}>
                       {step.icon}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[10px] font-mono" style={{ color: step.color }}>{step.num}</span>
-                        <span className="text-sm font-bold text-white">{step.title}</span>
+                        <span className="text-sm font-bold" style={{ color: '#111827' }}>{step.title}</span>
                         {activeStep === i && <CheckCircle2 className="w-3.5 h-3.5 ml-auto" style={{ color: step.color }} />}
                       </div>
-                      <p className="text-sm leading-relaxed" style={{ color: activeStep === i ? '#94a3b8' : '#475569' }}>
+                      <p className="text-sm leading-relaxed" style={{ color: activeStep === i ? '#4B5563' : '#6B7280' }}>
                         {step.desc}
                       </p>
                     </div>
@@ -362,22 +362,22 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
           <Reveal>
             <div className="text-center mb-16 space-y-3">
               <div className="text-xs font-mono tracking-[0.2em] uppercase" style={{ color: '#10b981' }}>Built different</div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-white">Everything you need. Nothing you don't.</h2>
+              <h2 className="text-3xl sm:text-4xl font-bold" style={{ color: '#111827' }}>Everything you need. Nothing you don't.</h2>
             </div>
           </Reveal>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {FEATURES.map((f, i) => (
               <Reveal key={i} delay={i * 80}>
                 <div className="rounded-2xl border p-6 h-full transition-all duration-300 group cursor-default"
-                  style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.06)' }}
-                  onMouseEnter={e => { (e.currentTarget).style.borderColor = f.color + '40'; (e.currentTarget).style.background = f.color + '08'; }}
-                  onMouseLeave={e => { (e.currentTarget).style.borderColor = 'rgba(255,255,255,0.06)'; (e.currentTarget).style.background = 'rgba(255,255,255,0.02)'; }}>
+                  style={{ background: '#ffffff', borderColor: 'rgba(17,24,39,0.08)' }}
+                  onMouseEnter={e => { (e.currentTarget).style.borderColor = f.color + '50'; (e.currentTarget).style.background = f.color + '08'; }}
+                  onMouseLeave={e => { (e.currentTarget).style.borderColor = 'rgba(17,24,39,0.08)'; (e.currentTarget).style.background = '#ffffff'; }}>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
                     style={{ background: f.color + '15', color: f.color, border: `1px solid ${f.color}25` }}>
                     {f.icon}
                   </div>
-                  <h3 className="text-sm font-bold text-white mb-2">{f.title}</h3>
-                  <p className="text-sm leading-relaxed" style={{ color: '#64748b' }}>{f.desc}</p>
+                  <h3 className="text-sm font-bold mb-2" style={{ color: '#111827' }}>{f.title}</h3>
+                  <p className="text-sm leading-relaxed" style={{ color: '#6B7280' }}>{f.desc}</p>
                 </div>
               </Reveal>
             ))}
@@ -391,7 +391,7 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
           style={{ background: 'radial-gradient(ellipse 60% 60% at 50% 50%, rgba(6,182,212,0.08) 0%, transparent 70%)' }} />
         <Reveal>
           <div className="relative max-w-2xl mx-auto space-y-6">
-            <h2 className="text-4xl font-extrabold text-white leading-tight">
+            <h2 className="text-4xl font-extrabold leading-tight" style={{ color: '#111827' }}>
               Ready to put your USDC<br />
               <span style={{ background: 'linear-gradient(90deg,#06b6d4,#10b981)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
                 to work autonomously?
@@ -410,10 +410,10 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
       </section>
 
       {/* ── Footer ── */}
-      <footer className="py-8 px-6 border-t text-center" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      <footer className="py-8 px-6 border-t text-center" style={{ borderColor: 'rgba(17,24,39,0.08)' }}>
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-sm" style={{ color: '#475569' }}>
-            <span className="font-semibold text-white">ArcGentic</span>
+          <div className="flex items-center gap-2 text-sm" style={{ color: '#6B7280' }}>
+            <span className="font-semibold" style={{ color: '#111827' }}>ArcGentic</span>
             <span>·</span>
             <span>Powered by Arc L1 &amp; Circle USDC</span>
           </div>
@@ -425,9 +425,9 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
             ].map(l => (
               <a key={l.label} href={l.href} target="_blank" rel="noreferrer"
                 className="text-xs font-medium transition-colors flex items-center gap-1"
-                style={{ color: '#475569' }}
-                onMouseEnter={e => e.currentTarget.style.color='#94a3b8'}
-                onMouseLeave={e => e.currentTarget.style.color='#475569'}>
+                style={{ color: '#6B7280' }}
+                onMouseEnter={e => e.currentTarget.style.color='#111827'}
+                onMouseLeave={e => e.currentTarget.style.color='#6B7280'}>
                 {l.label} <ExternalLink className="w-3 h-3" />
               </a>
             ))}
