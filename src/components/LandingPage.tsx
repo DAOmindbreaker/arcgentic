@@ -1,361 +1,439 @@
-import React, { useState } from 'react';
-import { 
-  Shield, 
-  Zap, 
-  Bot, 
-  ArrowRight, 
-  Lock, 
-  TrendingUp, 
-  CheckCircle2, 
-  ExternalLink,
-  ChevronRight
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  ArrowRight, Shield, Zap, Bot, Lock, TrendingUp, CheckCircle2,
+  ExternalLink, Activity, Cpu, RefreshCw
 } from 'lucide-react';
 
-interface LandingPageProps {
-  onLaunch: () => void;
+interface LandingPageProps { onLaunch: () => void; }
+
+// ── Scroll-reveal hook ───────────────────────────────────────────────────────
+function useInView(threshold = 0.18): [React.RefObject<HTMLDivElement>, boolean] {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); io.disconnect(); } }, { threshold });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [threshold]);
+  return [ref, visible];
 }
 
+// ── Animated counter ─────────────────────────────────────────────────────────
+function useCounter(target: number, run: boolean, decimals = 2, duration = 1400) {
+  const [val, setVal] = useState(0);
+  useEffect(() => {
+    if (!run) return;
+    const start = performance.now();
+    const frame = (now: number) => {
+      const p = Math.min((now - start) / duration, 1);
+      setVal(parseFloat((p * target).toFixed(decimals)));
+      if (p < 1) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }, [run, target, decimals, duration]);
+  return val;
+}
+
+// ── SVG wave bars ────────────────────────────────────────────────────────────
+function WaveBars({ color = '#06b6d4', count = 28 }: { color?: string; count?: number }) {
+  const [heights, setHeights] = useState<number[]>(() => Array.from({ length: count }, () => 20 + Math.random() * 60));
+  useEffect(() => {
+    const id = setInterval(() => {
+      setHeights(prev => prev.map(h => Math.max(8, Math.min(88, h + (Math.random() - 0.5) * 28))));
+    }, 120);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="flex items-end gap-[3px]" style={{ height: 56 }}>
+      {heights.map((h, i) => (
+        <div key={i} style={{
+          width: 4, height: `${h}%`, background: color,
+          borderRadius: 2, opacity: 0.7 + (h / 100) * 0.3,
+          transition: 'height 0.12s ease-out',
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ── Live stream ticker ────────────────────────────────────────────────────────
+const STREAM_EVENTS = [
+  { label: 'executeStrategy', value: '+12.40 USDC', color: '#10b981' },
+  { label: 'CCTP depositForBurn', value: '500.00 USDC → Base', color: '#06b6d4' },
+  { label: 'Guardrail check', value: 'PASS  8,340/10,000', color: '#3b82f6' },
+  { label: 'Yield harvested', value: '+4.22 USDC', color: '#10b981' },
+  { label: 'spentToday reset', value: '00:00 UTC', color: '#8b5cf6' },
+  { label: 'balanceOf vault', value: '125,440.00 USDC', color: '#f59e0b' },
+  { label: 'updateDailyLimit', value: '10,000 USDC', color: '#ec4899' },
+  { label: 'Arc block #1,984,201', value: '0.42 s finality', color: '#06b6d4' },
+];
+
+function LiveStream() {
+  const [rows, setRows] = useState(STREAM_EVENTS.slice(0, 5));
+  const [throughput, setThroughput] = useState(4.01);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const next = STREAM_EVENTS[Math.floor(Math.random() * STREAM_EVENTS.length)];
+      setRows(prev => [next, ...prev.slice(0, 6)]);
+      setThroughput(+(3.5 + Math.random() * 1.8).toFixed(2));
+    }, 2200);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="rounded-2xl border border-slate-700/60 bg-slate-900/80 backdrop-blur-md overflow-hidden shadow-2xl"
+      style={{ boxShadow: '0 0 60px rgba(6,182,212,0.12), 0 24px 48px rgba(0,0,0,0.4)' }}>
+      {/* Header bar */}
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-700/50 bg-slate-800/60">
+        <div className="flex items-center gap-2.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs font-mono font-semibold text-slate-200 tracking-wider uppercase">Arc L1 · Live Stream</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 text-[10px] font-mono bg-cyan-500/15 text-cyan-400 rounded border border-cyan-500/30">Mainnet Connected</span>
+          <span className="px-2 py-0.5 text-[10px] font-mono bg-emerald-500/15 text-emerald-400 rounded border border-emerald-500/30">Guardrail: Enforced</span>
+        </div>
+      </div>
+
+      {/* Throughput row */}
+      <div className="px-5 py-4 border-b border-slate-700/30 flex items-end justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-mono text-slate-500 uppercase tracking-wider mb-1">USDC Throughput</div>
+          <div className="text-3xl font-bold font-mono tabular-nums" style={{ color: '#06b6d4' }}>
+            {throughput.toFixed(2)}<span className="text-base font-normal text-slate-400 ml-1">USDC/s</span>
+          </div>
+        </div>
+        <WaveBars />
+      </div>
+
+      {/* Event log */}
+      <div className="px-5 py-3 space-y-0 font-mono text-[11px]">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center gap-3 py-1.5 border-b border-slate-800/60 last:border-0"
+            style={{ opacity: i === 0 ? 1 : 1 - i * 0.12, transition: 'opacity 0.4s' }}>
+            <span className="shrink-0 w-[6px] h-[6px] rounded-full" style={{ background: r.color }} />
+            <span className="text-slate-400 shrink-0 w-[170px] truncate">{r.label}</span>
+            <span className="font-semibold" style={{ color: r.color }}>{r.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Footer */}
+      <div className="px-5 py-2.5 bg-slate-800/40 flex items-center gap-2 text-[10px] font-mono text-slate-500">
+        <RefreshCw className="w-3 h-3 text-slate-600 animate-spin" style={{ animationDuration: '3s' }} />
+        <span>Simulated mainnet activity · Real contract at 0x02793c...94a0</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Scroll steps ──────────────────────────────────────────────────────────────
+const STEPS = [
+  {
+    num: '01', title: 'Vault Setup',
+    desc: 'Deploy AgentTreasuryVault to Arc Mainnet. Set USDC daily spend limits and register your AI agent address in one transaction.',
+    icon: <Cpu className="w-5 h-5" />, color: '#06b6d4',
+  },
+  {
+    num: '02', title: 'AI Yield Routing',
+    desc: 'The AI agent calls executeStrategy() to move USDC into whitelisted DeFi protocols — automatically optimising APY every 5 minutes.',
+    icon: <TrendingUp className="w-5 h-5" />, color: '#10b981',
+  },
+  {
+    num: '03', title: 'Guardrails Active',
+    desc: 'On-chain daily limits, protocol allowlists, and a code-existence guard prevent any single strategy from draining the vault.',
+    icon: <Shield className="w-5 h-5" />, color: '#3b82f6',
+  },
+  {
+    num: '04', title: 'Non-Custodial Security',
+    desc: 'Only the vault owner can emergencyWithdrawAll(). No third party ever holds your keys. Full on-chain verifiability at all times.',
+    icon: <Lock className="w-5 h-5" />, color: '#8b5cf6',
+  },
+];
+
+// ── Feature cards ─────────────────────────────────────────────────────────────
+const FEATURES = [
+  { icon: <Bot className="w-6 h-6" />, title: 'Agentic AI Treasury', desc: 'AI agent autonomously allocates USDC yield across whitelisted DeFi protocols with no human intervention required.', color: '#06b6d4' },
+  { icon: <Shield className="w-6 h-6" />, title: 'Unbreakable Guardrails', desc: 'Daily spend limits, protocol allowlists, and code-existence checks enforced at the smart contract layer — not the app layer.', color: '#10b981' },
+  { icon: <Zap className="w-6 h-6" />, title: 'Sub-Second Finality', desc: 'Arc L1 delivers ~420ms block times and USDC-native gas so strategies execute in real time without ETH friction.', color: '#f59e0b' },
+  { icon: <TrendingUp className="w-6 h-6" />, title: 'Live APY Optimisation', desc: 'Weighted APY calculated across all active strategies and rebalanced automatically whenever a better yield opportunity is detected.', color: '#ec4899' },
+  { icon: <Lock className="w-6 h-6" />, title: 'Non-Custodial by Design', desc: 'emergencyWithdrawAll() is owner-only and always callable. Your vault, your keys, your USDC — forever.', color: '#8b5cf6' },
+  { icon: <Activity className="w-6 h-6" />, title: 'Circle CCTP Bridging', desc: 'Move USDC cross-chain to Ethereum, Base, Arbitrum, and OP Mainnet via Circle CCTP v2 burn-and-mint with ~8s confirmation.', color: '#3b82f6' },
+];
+
+// ── Reveal wrapper ────────────────────────────────────────────────────────────
+function Reveal({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  const [ref, visible] = useInView();
+  return (
+    <div ref={ref} style={{
+      opacity: visible ? 1 : 0,
+      transform: visible ? 'translateY(0)' : 'translateY(32px)',
+      transition: `opacity 0.6s ease ${delay}ms, transform 0.6s ease ${delay}ms`,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export function LandingPage({ onLaunch }: LandingPageProps) {
-  const [activeTab, setActiveTab] = useState<'treasury' | 'guardrails' | 'yield'>('treasury');
+  const [activeStep, setActiveStep] = useState(0);
+  const [heroRef, heroVisible] = useInView(0.1);
+  const tvlCount  = useCounter(125440, heroVisible, 0, 1600);
+  const apyCount  = useCounter(7.42,   heroVisible, 2, 1400);
+  const txCount   = useCounter(98412,  heroVisible, 0, 1800);
+
+  // Auto-advance steps
+  useEffect(() => {
+    const id = setInterval(() => setActiveStep(s => (s + 1) % STEPS.length), 3800);
+    return () => clearInterval(id);
+  }, []);
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] text-[#111827] font-sans antialiased selection:bg-sky-100 selection:text-sky-900">
-      
-      {/* Navbar */}
-      <header className="sticky top-0 z-50 bg-[#F9FAFB]/90 backdrop-blur-md border-b border-black/[0.05]">
+    <div className="min-h-screen font-sans antialiased selection:bg-sky-100"
+      style={{ background: '#F9FAFB', color: '#111827' }}>
+
+      {/* ── Navbar ── */}
+      <header className="sticky top-0 z-50 border-b"
+        style={{ background: 'rgba(249,250,251,0.92)', backdropFilter: 'blur(20px)', borderColor: 'rgba(17,24,39,0.07)' }}>
         <div className="max-w-7xl mx-auto px-6 h-16 grid grid-cols-3 items-center">
-          {/* Left: Logo */}
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl shadow-sm overflow-hidden shrink-0 bg-sky-50 border border-sky-100">
-              <img
-                src="https://raw.githubusercontent.com/DAOmindbreaker/arcgentic/main/public/logo.png"
-                alt="ArcGentic"
-                width={36}
-                height={36}
-                className="w-full h-full object-contain"
-                onError={(e) => {
-                  const el = e.currentTarget;
-                  el.style.display = 'none';
-                  const parent = el.parentElement;
-                  if (parent) {
-                    parent.style.background = '#0284c7';
-                    parent.innerHTML = '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:white;font-weight:700;font-size:13px;font-family:monospace">AG</span>';
-                  }
-                }}
-              />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl overflow-hidden shrink-0 flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg,#06b6d4,#3b82f6,#8b5cf6)', boxShadow: '0 0 16px rgba(6,182,212,0.4)' }}>
+              <img src="https://raw.githubusercontent.com/DAOmindbreaker/arcgentic/main/public/logo.png"
+                alt="ArcGentic" width={36} height={36} className="w-full h-full object-contain"
+                onError={e => { e.currentTarget.style.display='none'; }} />
             </div>
-            <span className="font-bold text-base tracking-tight text-[#111827]">ArcGentic</span>
-            <span className="hidden sm:inline-block px-2.5 py-0.5 text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">
+            <span className="font-bold text-base tracking-tight" style={{ color: '#111827' }}>ArcGentic</span>
+            <span className="hidden sm:inline px-2 py-0.5 text-[10px] font-mono bg-emerald-500/15 text-emerald-400 rounded-full border border-emerald-500/25">
               Arc Mainnet
             </span>
           </div>
-
-          {/* Center: Nav links */}
-          <nav className="hidden md:flex items-center justify-center space-x-1">
-            <a href="#features" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all">Features</a>
-            <a href="#solutions" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all">Solutions</a>
-            <a href="#security" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all">Security</a>
+          <nav className="hidden md:flex items-center justify-center gap-1">
+            {['Features','How It Works','Security'].map(l => (
+              <a key={l} href={`#${l.toLowerCase().replace(/ /g,'-')}`}
+                className="px-4 py-2 text-sm font-medium rounded-full transition-all"
+                style={{ color: '#6B7280' }}
+                onMouseEnter={e => { e.currentTarget.style.color='#111827'; e.currentTarget.style.background='rgba(17,24,39,0.05)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color='#6B7280'; e.currentTarget.style.background='transparent'; }}>
+                {l}
+              </a>
+            ))}
           </nav>
-
-          {/* Right: CTA */}
           <div className="flex items-center justify-end">
-            <button
-              onClick={onLaunch}
-              className="px-4 py-2 text-sm font-semibold text-white bg-[#111827] hover:bg-black rounded-lg transition-all shadow-sm flex items-center space-x-2"
-            >
-              <span>Launch App</span>
-              <ArrowRight className="w-4 h-4" />
+            <button onClick={onLaunch}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+              style={{ background: 'linear-gradient(135deg,#06b6d4,#3b82f6)', color: '#fff', boxShadow: '0 0 20px rgba(6,182,212,0.3)' }}
+              onMouseEnter={e => { e.currentTarget.style.transform='translateY(-1px)'; e.currentTarget.style.boxShadow='0 0 28px rgba(6,182,212,0.5)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform=''; e.currentTarget.style.boxShadow='0 0 20px rgba(6,182,212,0.3)'; }}>
+              Launch App <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-20 pb-16 px-6 max-w-5xl mx-auto text-center space-y-8 overflow-visible">
-        {/* ── MCU Sci-Fi 3D Portal Assembly ──────────────────────────────────── */}
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center -z-10 overflow-visible opacity-90"
-          style={{ filter: 'drop-shadow(0 0 35px rgba(6,182,212,0.45))' }}>
+      {/* ── Hero ── */}
+      <section className="relative pt-24 pb-20 px-6 text-center overflow-hidden">
+        {/* Background glow */}
+        <div className="absolute inset-0 pointer-events-none" style={{
+          background: 'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(6,182,212,0.08) 0%, transparent 70%)',
+        }} />
+        {/* Grid texture — dark lines on light bg */}
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ backgroundImage: 'linear-gradient(rgba(17,24,39,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(17,24,39,0.06) 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
 
-          {/* ① Core portal aura — static radial energy flare */}
-          <div className="absolute w-[420px] h-[420px] rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(6,182,212,0.22) 0%, rgba(59,130,246,0.14) 40%, transparent 70%)', filter: 'blur(32px)' }} />
-
-          {/* ② Upper/Back arch ring — counter-clockwise 25s */}
-          <svg className="absolute w-[640px] h-[320px]"
-            style={{ animation: 'spin-reverse 25s linear infinite', transformOrigin: '50% 100%', filter: 'drop-shadow(0 0 18px rgba(6,182,212,0.7))' }}
-            viewBox="0 0 640 320" fill="none">
-            <defs>
-              <linearGradient id="mcu-arch" x1="0" y1="0" x2="640" y2="0" gradientUnits="userSpaceOnUse">
-                <stop offset="0%"   stopColor="#06b6d4" stopOpacity="0.1" />
-                <stop offset="25%"  stopColor="#06b6d4" stopOpacity="0.9" />
-                <stop offset="50%"  stopColor="#10b981" />
-                <stop offset="75%"  stopColor="#06b6d4" stopOpacity="0.9" />
-                <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.1" />
-              </linearGradient>
-              <linearGradient id="mcu-arch2" x1="0" y1="0" x2="640" y2="0" gradientUnits="userSpaceOnUse">
-                <stop offset="0%"   stopColor="#3b82f6" stopOpacity="0.05" />
-                <stop offset="30%"  stopColor="#3b82f6" stopOpacity="0.6" />
-                <stop offset="50%"  stopColor="#6366f1" stopOpacity="0.8" />
-                <stop offset="70%"  stopColor="#3b82f6" stopOpacity="0.6" />
-                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.05" />
-              </linearGradient>
-            </defs>
-            {/* Primary arch */}
-            <path d="M 20 320 A 300 300 0 0 1 620 320" stroke="url(#mcu-arch)" strokeWidth="3" fill="none" />
-            {/* Inner arch track */}
-            <path d="M 60 320 A 260 260 0 0 1 580 320" stroke="url(#mcu-arch2)" strokeWidth="1.5" strokeDasharray="10 8" fill="none" />
-            {/* Outer arch track */}
-            <path d="M 0 320 A 320 320 0 0 1 640 320" stroke="#06b6d4" strokeWidth="0.75" strokeDasharray="3 20" strokeOpacity="0.45" fill="none" />
-            {/* Circuit node dots on arch */}
-            {[0.15, 0.3, 0.5, 0.7, 0.85].map((t, i) => {
-              const angle = Math.PI * (1 - t);
-              const r = 300, cx2 = 320, cy2 = 320;
-              const x = cx2 + r * Math.cos(angle), y = cy2 - r * Math.sin(angle);
-              return (
-                <g key={i}>
-                  <circle cx={x} cy={y} r="4" fill={i === 2 ? '#10b981' : '#06b6d4'} fillOpacity="0.95" />
-                  <circle cx={x} cy={y} r="8" fill={i === 2 ? '#10b981' : '#06b6d4'} fillOpacity="0.2" />
-                </g>
-              );
-            })}
-            {/* Holographic circuit tick marks */}
-            {[0.1, 0.25, 0.4, 0.6, 0.75, 0.9].map((t, i) => {
-              const angle = Math.PI * (1 - t);
-              const r = 300, cx2 = 320, cy2 = 320;
-              const nx = Math.cos(angle), ny = -Math.sin(angle);
-              const x1 = cx2 + (r - 12) * nx, y1 = cy2 + (r - 12) * ny;
-              const x2 = cx2 + (r + 12) * nx, y2 = cy2 + (r + 12) * ny;
-              return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#10b981" strokeWidth="1.5" strokeOpacity="0.7" />;
-            })}
-          </svg>
-
-          {/* ③ Lower pedestal base — clockwise 35s */}
-          <svg className="absolute w-[640px] h-[220px]"
-            style={{ animation: 'spin-slow 35s linear infinite', transformOrigin: '50% 0%', filter: 'drop-shadow(0 0 14px rgba(59,130,246,0.6))' }}
-            viewBox="0 0 640 220" fill="none">
-            <defs>
-              <linearGradient id="mcu-ped" x1="0" y1="0" x2="640" y2="0" gradientUnits="userSpaceOnUse">
-                <stop offset="0%"   stopColor="#3b82f6" stopOpacity="0.05" />
-                <stop offset="30%"  stopColor="#3b82f6" stopOpacity="0.8" />
-                <stop offset="50%"  stopColor="#06b6d4" />
-                <stop offset="70%"  stopColor="#3b82f6" stopOpacity="0.8" />
-                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.05" />
-              </linearGradient>
-            </defs>
-            {/* Primary platform ellipse */}
-            <ellipse cx="320" cy="40" rx="300" ry="40" stroke="url(#mcu-ped)" strokeWidth="2.5" fill="none" />
-            {/* HUD ring 1 */}
-            <ellipse cx="320" cy="40" rx="260" ry="32" stroke="#06b6d4" strokeWidth="1" strokeDasharray="8 10" strokeOpacity="0.5" fill="none" />
-            {/* HUD ring 2 */}
-            <ellipse cx="320" cy="40" rx="220" ry="26" stroke="#6366f1" strokeWidth="0.75" strokeDasharray="4 16" strokeOpacity="0.4" fill="none" />
-            {/* Pedestal vertical pillars */}
-            {[0.15, 0.35, 0.5, 0.65, 0.85].map((t, i) => {
-              const angle = Math.PI * (1 - t);
-              const rx2 = 300, ry2 = 40;
-              const x = 320 + rx2 * Math.cos(angle);
-              const y = 40 - ry2 * Math.sin(angle);
-              return (
-                <g key={i}>
-                  <line x1={x} y1={y} x2={x} y2={y + 60 + i * 8} stroke="#3b82f6" strokeWidth="1" strokeOpacity="0.45" />
-                  <circle cx={x} cy={y} r="3.5" fill="#3b82f6" fillOpacity="0.8" />
-                </g>
-              );
-            })}
-            {/* Neon HUD ticks */}
-            {[0.05,0.2,0.38,0.5,0.62,0.8,0.95].map((t, i) => {
-              const angle = Math.PI * (1 - t);
-              const rx2 = 300, ry2 = 40;
-              const nx = Math.cos(angle), ny = -Math.sin(angle) * (ry2 / rx2);
-              const scale = Math.sqrt(nx * nx * rx2 * rx2 + ny * ny * rx2 * rx2) / rx2;
-              const x1 = 320 + (rx2 - 10) * Math.cos(angle);
-              const y1 = 40 - (ry2 - 4) * Math.sin(angle);
-              const x2 = 320 + (rx2 + 10) * Math.cos(angle);
-              const y2 = 40 - (ry2 + 4) * Math.sin(angle);
-              return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#06b6d4" strokeWidth="1.5" strokeOpacity="0.7" />;
-            })}
-          </svg>
-
-          {/* ④ Ambient connecting glow between arch and pedestal */}
-          <div className="absolute w-[180px] h-[180px] rounded-full bg-cyan-500/20 blur-3xl" />
-
-        </div>
-        <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white border border-gray-200 shadow-2xs text-xs font-medium text-gray-700">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Autonomous Corporate Treasury on Arc L1</span>
-        </div>
-
-        <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tight text-[#111827] leading-[1.08]">
-          The self-driving USDC treasury with <span className="text-sky-600">unbreakable guardrails.</span>
-        </h1>
-
-        <p className="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto font-normal leading-relaxed">
-          ArcGentic automatically optimizes yield across Arc Mainnet protocols while hard-enforcing on-chain daily spend limits and allowlists.
-        </p>
-
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
-          <button
-            onClick={onLaunch}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-base transition-all shadow-md shadow-sky-600/20 flex items-center justify-center space-x-2"
-          >
-            <span>Open Treasury Dashboard</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <a
-            href="https://github.com/DAOmindbreaker/arcgentic"
-            target="_blank"
-            rel="noreferrer"
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 text-gray-800 font-semibold text-base transition-all shadow-2xs flex items-center justify-center space-x-2"
-          >
-            <span>View Smart Contracts</span>
-            <ExternalLink className="w-4 h-4 text-gray-400" />
-          </a>
-        </div>
-      </section>
-
-      {/* Metric Cards */}
-      <section id="features" className="py-12 px-6 max-w-5xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-6 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              <span>Security Standard</span>
-              <Shield className="w-4 h-4 text-sky-600" />
-            </div>
-            <div className="text-3xl font-bold font-mono tracking-tight text-gray-900">OpenZeppelin v5</div>
-            <p className="text-xs text-gray-500">ReentrancyGuard & Enforced Access Control</p>
+        <div className="relative max-w-5xl mx-auto space-y-8">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-mono font-medium"
+            style={{ background: 'rgba(6,182,212,0.07)', borderColor: 'rgba(6,182,212,0.3)', color: '#0891b2' }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Deployed on Arc Mainnet · Chain ID 5042
           </div>
 
-          <div className="p-6 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              <span>Daily Spend Cap</span>
-              <Lock className="w-4 h-4 text-emerald-600" />
-            </div>
-            <div className="text-3xl font-bold font-mono tracking-tight text-gray-900">Hard-Capped</div>
-            <p className="text-xs text-gray-500">On-chain limit resets every 24 hours</p>
+          {/* Headline */}
+          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-none">
+            <span style={{ color: '#111827' }}>THE SELF-DRIVING</span>
+            <br />
+            <span style={{ background: 'linear-gradient(90deg,#06b6d4,#3b82f6,#8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              USDC TREASURY
+            </span>
+            <br />
+            <span style={{ color: '#111827' }}>WITH </span>
+            <span style={{ background: 'linear-gradient(90deg,#10b981,#06b6d4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              UNBREAKABLE GUARDRAILS
+            </span>
+          </h1>
+
+          <p className="text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed" style={{ color: '#4B5563' }}>
+            ArcGentic automates USDC yield allocation with AI-driven on-chain strategies, enforced spending guardrails, and Circle CCTP bridging — all without ever holding your keys.
+          </p>
+
+          {/* CTAs */}
+          <div className="flex flex-wrap items-center justify-center gap-4">
+            <button onClick={onLaunch}
+              className="flex items-center gap-2 px-7 py-3.5 rounded-xl font-bold text-sm transition-all"
+              style={{ background: 'linear-gradient(135deg,#06b6d4,#3b82f6)', color: '#fff', boxShadow: '0 0 32px rgba(6,182,212,0.4)' }}
+              onMouseEnter={e => { e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 0 48px rgba(6,182,212,0.6)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform=''; e.currentTarget.style.boxShadow='0 0 32px rgba(6,182,212,0.4)'; }}>
+              Launch Treasury App <ArrowRight className="w-4 h-4" />
+            </button>
+            <a href="https://github.com/DAOmindbreaker/arcgentic" target="_blank" rel="noreferrer"
+              className="flex items-center gap-2 px-7 py-3.5 rounded-xl font-semibold text-sm border transition-all"
+              style={{ borderColor: 'rgba(17,24,39,0.15)', color: '#374151' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(17,24,39,0.3)'; e.currentTarget.style.color='#111827'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(17,24,39,0.15)'; e.currentTarget.style.color='#374151'; }}>
+              View Source <ExternalLink className="w-4 h-4" />
+            </a>
           </div>
 
-          <div className="p-6 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              <span>Native Rail</span>
-              <Zap className="w-4 h-4 text-amber-500" />
-            </div>
-            <div className="text-3xl font-bold font-mono tracking-tight text-gray-900">Circle CCTP v2</div>
-            <p className="text-xs text-gray-500">Native USDC burn-and-mint settlement</p>
+          {/* Stats */}
+          <div ref={heroRef} className="grid grid-cols-3 gap-6 pt-8 max-w-xl mx-auto">
+            {[
+              { label: 'TVL', value: `$${tvlCount.toLocaleString()}`, unit: 'USDC' },
+              { label: 'Live APY', value: `${apyCount.toFixed(2)}%`, unit: 'weighted' },
+              { label: 'Strategies', value: txCount.toLocaleString(), unit: 'executed' },
+            ].map((s, i) => (
+              <div key={i} className="text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums" style={{ color: '#06b6d4' }}>{s.value}</div>
+                <div className="text-[11px] font-mono uppercase tracking-wider mt-0.5" style={{ color: '#475569' }}>{s.unit}</div>
+                <div className="text-xs mt-0.5" style={{ color: '#64748b' }}>{s.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Interactive Tab Switcher */}
-      <section id="solutions" className="py-16 px-6 max-w-5xl mx-auto">
-        <div className="text-center space-y-3 mb-10">
-          <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Built for modern Web3 teams and DAOs</h2>
-          <p className="text-gray-600 text-sm">Select a module below to preview how ArcGentic operates on-chain.</p>
-        </div>
-
-        <div className="bg-white rounded-3xl border border-gray-200/90 shadow-sm overflow-hidden p-8 space-y-8">
-          <div className="flex justify-center border-b border-gray-100 pb-4">
-            <div className="inline-flex p-1 bg-gray-100 rounded-xl space-x-1">
-              <button
-                onClick={() => setActiveTab('treasury')}
-                className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                  activeTab === 'treasury' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Autonomous Treasury
-              </button>
-              <button
-                onClick={() => setActiveTab('guardrails')}
-                className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                  activeTab === 'guardrails' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                On-Chain Guardrails
-              </button>
-              <button
-                onClick={() => setActiveTab('yield')}
-                className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                  activeTab === 'yield' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Smart Yield Routing
-              </button>
+      {/* ── How It Works + Live Stream ── */}
+      <section id="how-it-works" className="py-24 px-6 relative"
+        style={{ background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        <div className="max-w-7xl mx-auto">
+          <Reveal>
+            <div className="text-center mb-16 space-y-3">
+              <div className="text-xs font-mono tracking-[0.2em] uppercase" style={{ color: '#06b6d4' }}>Don't take our word for it</div>
+              <h2 className="text-3xl sm:text-4xl font-bold text-white">Watch it work in real time</h2>
+              <p className="text-base max-w-xl mx-auto" style={{ color: '#64748b' }}>Four on-chain steps. One self-driving treasury. No human in the loop.</p>
             </div>
-          </div>
+          </Reveal>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center pt-2">
-            <div className="space-y-4">
-              <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600">
-                {activeTab === 'treasury' && <Bot className="w-5 h-5" />}
-                {activeTab === 'guardrails' && <Shield className="w-5 h-5" />}
-                {activeTab === 'yield' && <TrendingUp className="w-5 h-5" />}
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900">
-                {activeTab === 'treasury' && 'Programmatic vault control without emotional bias.'}
-                {activeTab === 'guardrails' && 'Strict daily limits that no agent or exploit can bypass.'}
-                {activeTab === 'yield' && 'Automated allocation to verified Arc lending markets.'}
-              </h3>
-              <p className="text-gray-600 text-sm leading-relaxed">
-                {activeTab === 'treasury' && 'Deposit organizational USDC into ArcGentic. The AI Agent continuously evaluates liquidity demands and allocates idle capital according to your pre-set rules.'}
-                {activeTab === 'guardrails' && 'Set a daily expenditure limit on the smart contract. Even if an AI agent generates a transaction, execution automatically reverts if it exceeds the remaining budget.'}
-                {activeTab === 'yield' && 'Yield optimization strategies interact strictly with allowlisted protocol addresses, auto-resetting allowances after every strategy execution.'}
-              </p>
-              <ul className="space-y-2 pt-2 text-xs font-medium text-gray-700">
-                <li className="flex items-center space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Native USDC support on Arc Mainnet (Chain ID 5042)</span>
-                </li>
-                <li className="flex items-center space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Transparent execution logs on explorer.arc.io</span>
-                </li>
-              </ul>
-            </div>
-
-            <div className="bg-gray-50 rounded-2xl border border-gray-200 p-6 space-y-4 font-mono text-xs">
-              <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                <span className="text-gray-500 uppercase font-bold">Live Contract Status</span>
-                <span className="text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded">ACTIVE</span>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Vault Balance:</span>
-                  <span className="font-bold text-gray-900">$115,000.00 USDC</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">24h Spend Cap:</span>
-                  <span className="font-bold text-gray-900">$10,000.00 USDC</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">AI Agent Address:</span>
-                  <span className="text-sky-600">0x0279...94a0</span>
-                </div>
-              </div>
-              <div className="pt-3 border-t border-gray-200">
-                <button
-                  onClick={onLaunch}
-                  className="w-full py-2.5 bg-gray-900 hover:bg-black text-white font-sans font-semibold rounded-lg text-xs transition-colors"
-                >
-                  Interactive Demo App →
+          <div className="grid lg:grid-cols-2 gap-12 items-start">
+            {/* Left: scroll steps */}
+            <div className="space-y-3">
+              {STEPS.map((step, i) => (
+                <button key={i} onClick={() => setActiveStep(i)}
+                  className="w-full text-left rounded-2xl border p-5 transition-all duration-300"
+                  style={{
+                    background: activeStep === i ? `rgba(${step.color === '#06b6d4' ? '6,182,212' : step.color === '#10b981' ? '16,185,129' : step.color === '#3b82f6' ? '59,130,246' : '139,92,246'},0.08)` : 'transparent',
+                    borderColor: activeStep === i ? step.color + '50' : 'rgba(255,255,255,0.06)',
+                    transform: activeStep === i ? 'translateX(4px)' : '',
+                  }}>
+                  <div className="flex items-start gap-4">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0"
+                      style={{ background: activeStep === i ? step.color + '20' : 'rgba(255,255,255,0.04)', color: step.color, border: `1px solid ${step.color}30` }}>
+                      {step.icon}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-mono" style={{ color: step.color }}>{step.num}</span>
+                        <span className="text-sm font-bold text-white">{step.title}</span>
+                        {activeStep === i && <CheckCircle2 className="w-3.5 h-3.5 ml-auto" style={{ color: step.color }} />}
+                      </div>
+                      <p className="text-sm leading-relaxed" style={{ color: activeStep === i ? '#94a3b8' : '#475569' }}>
+                        {step.desc}
+                      </p>
+                    </div>
+                  </div>
                 </button>
-              </div>
+              ))}
+            </div>
+
+            {/* Right: live stream card */}
+            <div className="lg:sticky lg:top-24">
+              <Reveal delay={150}>
+                <LiveStream />
+              </Reveal>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-200 py-8 bg-white mt-20">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
-          <div>
-            © 2026 ArcGentic. Built with Arc Studio for Arc Microgrants.
+      {/* ── Features ── */}
+      <section id="features" className="py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <Reveal>
+            <div className="text-center mb-16 space-y-3">
+              <div className="text-xs font-mono tracking-[0.2em] uppercase" style={{ color: '#10b981' }}>Built different</div>
+              <h2 className="text-3xl sm:text-4xl font-bold text-white">Everything you need. Nothing you don't.</h2>
+            </div>
+          </Reveal>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {FEATURES.map((f, i) => (
+              <Reveal key={i} delay={i * 80}>
+                <div className="rounded-2xl border p-6 h-full transition-all duration-300 group cursor-default"
+                  style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.06)' }}
+                  onMouseEnter={e => { (e.currentTarget).style.borderColor = f.color + '40'; (e.currentTarget).style.background = f.color + '08'; }}
+                  onMouseLeave={e => { (e.currentTarget).style.borderColor = 'rgba(255,255,255,0.06)'; (e.currentTarget).style.background = 'rgba(255,255,255,0.02)'; }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
+                    style={{ background: f.color + '15', color: f.color, border: `1px solid ${f.color}25` }}>
+                    {f.icon}
+                  </div>
+                  <h3 className="text-sm font-bold text-white mb-2">{f.title}</h3>
+                  <p className="text-sm leading-relaxed" style={{ color: '#64748b' }}>{f.desc}</p>
+                </div>
+              </Reveal>
+            ))}
           </div>
-          <div className="flex items-center space-x-6">
-            <a href="https://docs.arc.io" target="_blank" rel="noreferrer" className="hover:text-gray-900">Arc Docs</a>
-            <a href="https://explorer.arc.io" target="_blank" rel="noreferrer" className="hover:text-gray-900">Arc Explorer</a>
-            <a href="https://developers.circle.com" target="_blank" rel="noreferrer" className="hover:text-gray-900">Circle Devs</a>
+        </div>
+      </section>
+
+      {/* ── CTA ── */}
+      <section className="py-24 px-6 text-center relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background: 'radial-gradient(ellipse 60% 60% at 50% 50%, rgba(6,182,212,0.08) 0%, transparent 70%)' }} />
+        <Reveal>
+          <div className="relative max-w-2xl mx-auto space-y-6">
+            <h2 className="text-4xl font-extrabold text-white leading-tight">
+              Ready to put your USDC<br />
+              <span style={{ background: 'linear-gradient(90deg,#06b6d4,#10b981)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
+                to work autonomously?
+              </span>
+            </h2>
+            <p className="text-base" style={{ color: '#64748b' }}>Connect your wallet, fund the vault, and let ArcGentic handle the rest.</p>
+            <button onClick={onLaunch}
+              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-bold text-base transition-all"
+              style={{ background: 'linear-gradient(135deg,#06b6d4,#3b82f6)', color: '#fff', boxShadow: '0 0 40px rgba(6,182,212,0.35)' }}
+              onMouseEnter={e => { e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 0 56px rgba(6,182,212,0.55)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform=''; e.currentTarget.style.boxShadow='0 0 40px rgba(6,182,212,0.35)'; }}>
+              Launch Treasury App <ArrowRight className="w-5 h-5" />
+            </button>
+          </div>
+        </Reveal>
+      </section>
+
+      {/* ── Footer ── */}
+      <footer className="py-8 px-6 border-t text-center" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-sm" style={{ color: '#475569' }}>
+            <span className="font-semibold text-white">ArcGentic</span>
+            <span>·</span>
+            <span>Powered by Arc L1 &amp; Circle USDC</span>
+          </div>
+          <div className="flex items-center gap-5">
+            {[
+              { label: 'GitHub', href: 'https://github.com/DAOmindbreaker/arcgentic' },
+              { label: 'Arc Docs', href: 'https://docs.arc.io' },
+              { label: 'Circle Dev', href: 'https://developers.circle.com' },
+            ].map(l => (
+              <a key={l.label} href={l.href} target="_blank" rel="noreferrer"
+                className="text-xs font-medium transition-colors flex items-center gap-1"
+                style={{ color: '#475569' }}
+                onMouseEnter={e => e.currentTarget.style.color='#94a3b8'}
+                onMouseLeave={e => e.currentTarget.style.color='#475569'}>
+                {l.label} <ExternalLink className="w-3 h-3" />
+              </a>
+            ))}
           </div>
         </div>
       </footer>
-
     </div>
   );
 }
