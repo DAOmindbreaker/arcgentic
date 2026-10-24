@@ -464,7 +464,7 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const { records: txRecords, addTxRecord, updateTxStatus, clearHistory } = useTxHistory(walletAddress);
   // Auto-resolve pending tx statuses by polling Arc Mainnet receipt
-  usePendingReceiptWatcher(txRecords, walletAddress, updateTxStatus);
+  usePendingReceiptWatcher(txRecords, walletAddress, updateTxStatus, historyOpen);
 
   /** Build a stable record id from txHash or a local id */
   function txId(base: string) { return `${base}-${Date.now()}`; }

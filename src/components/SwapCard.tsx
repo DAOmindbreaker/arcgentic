@@ -246,7 +246,7 @@ export default function SwapCard() {
 
   function reset() { setEstimate(null); setErrMsg(''); if (phase !== 'idle') setPhase('idle'); }
 
-  const appKit = new AppKit();
+  const appKitRef = useRef(new AppKit());
 
   // Auto-quote debounce
   const getAdapter = useCallback(async (chainId: number) => {
@@ -263,8 +263,8 @@ export default function SwapCard() {
     setPhase('quoting'); setEstimate(null); setErrMsg('');
     try {
       const adapter = await getAdapter(CHAIN_ID);
-      const est = await appKit.estimateSwap({
-        from: { adapter, chain: 'Arc_Testnet' },
+      const est = await appKitRef.current.estimateSwap({
+        from: { adapter, chain: 'Arc' },
         tokenIn: from, tokenOut: to,
         amountIn: amt, config: { slippageBps: bps },
       });
@@ -274,7 +274,7 @@ export default function SwapCard() {
       const msg = e instanceof Error ? e.message : String(e);
       setErrMsg(msg); setPhase('error');
     }
-  }, [getAdapter, walletAddress, appKit]);
+  }, [getAdapter, walletAddress]);
 
   useEffect(() => {
     if (!walletAddress) return;
@@ -291,8 +291,8 @@ export default function SwapCard() {
     const tid = toast.loading(`Swapping ${amount} ${fromToken} → ${toToken}…`);
     try {
       const adapter = await getAdapter(CHAIN_ID);
-      const result = await appKit.swap({
-        from: { adapter, chain: 'Arc_Testnet' },
+      const result = await appKitRef.current.swap({
+        from: { adapter, chain: 'Arc' },
         tokenIn: fromToken, tokenOut: toToken,
         amountIn: amount, config: { slippageBps: slippage },
       });

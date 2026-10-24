@@ -1,6 +1,6 @@
 import React from 'react';
 import { formatUnits } from 'viem';
-import { RefreshCw, AlertCircle } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 interface USDCBalanceProps {
   rawValue: bigint | undefined;
@@ -25,29 +25,8 @@ export const USDCBalance: React.FC<USDCBalanceProps> = ({
     );
   }
 
-  if (isError) {
-    return (
-      <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--danger)' }}>
-        <AlertCircle className="w-4 h-4 shrink-0" />
-        <span>Failed to load balance</span>
-        {onRefresh && (
-          <button
-            onClick={onRefresh}
-            className="ml-1 p-1 rounded transition-colors"
-            style={{ background: 'transparent' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-strong)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            title="Retry"
-            aria-label="Retry loading balance"
-          >
-            <RefreshCw className="w-3.5 h-3.5" style={{ color: 'var(--muted)' }} />
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  // USDC uses 6 decimals on Arc Mainnet
+  // USDC uses 6 decimals on Arc Mainnet.
+  // Treat an error with no raw value as zero — a vault with no balance is valid.
   const formattedBalance =
     rawValue !== undefined
       ? Number(formatUnits(rawValue, 6)).toLocaleString('en-US', {
@@ -70,6 +49,19 @@ export const USDCBalance: React.FC<USDCBalanceProps> = ({
       >
         USDC
       </span>
+      {isError && onRefresh && (
+        <button
+          onClick={onRefresh}
+          className="ml-1 p-1 rounded transition-colors"
+          style={{ background: 'transparent' }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-strong)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          title="Retry balance fetch"
+          aria-label="Retry loading balance"
+        >
+          <RefreshCw className="w-3 h-3" style={{ color: 'var(--muted)' }} />
+        </button>
+      )}
     </div>
   );
 };

@@ -122,6 +122,7 @@ export function usePendingReceiptWatcher(
   records: TxRecord[],
   walletAddress: string | undefined,
   updateTxStatus: (id: string, status: TxStatus, txHash?: string) => void,
+  drawerOpen?: boolean,
 ) {
   // stable publicClient for Arc Mainnet
   const clientRef = useRef(
@@ -197,7 +198,7 @@ export function usePendingReceiptWatcher(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [records.filter(r => r.status === 'pending').map(r => r.id).join(','), walletAddress, resolveHash]);
 
-  // ③ Startup sweep — re-verify any stale pending records from localStorage
+  // ③ Startup sweep — re-verify stale pending records from localStorage
   //    even if they pre-date this session (e.g. 0x2d9072...)
   useEffect(() => {
     if (!walletAddress) return;
@@ -210,11 +211,19 @@ export function usePendingReceiptWatcher(
       ) : [];
     } catch { return; }
     if (stale.length === 0) return;
-    // Fire-and-forget sweep — resolveHash updates both state and localStorage
     for (const rec of stale) void resolveHash(rec, walletAddress);
-  // Run once on mount / wallet change only
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletAddress]);
+
+  // ④ Drawer-open sweep — immediately re-check all in-state pending records
+  //    when the history drawer is opened so the user sees live status at once
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const pending = records.filter(r => r.status === 'pending' && r.txHash);
+    if (pending.length === 0) return;
+    for (const rec of pending) void resolveHash(rec, walletAddress);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawerOpen]);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
