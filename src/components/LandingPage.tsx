@@ -6,6 +6,17 @@ import {
 
 interface LandingPageProps { onLaunch: () => void; }
 
+// ── Parallax scroll hook ──────────────────────────────────────────────────────
+function useParallax(strength = 0.35) {
+  const [offset, setOffset] = useState(0);
+  useEffect(() => {
+    const onScroll = () => setOffset(window.scrollY * strength);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [strength]);
+  return offset;
+}
+
 // ── Scroll-reveal hook ───────────────────────────────────────────────────────
 function useInView(threshold = 0.18): [React.RefObject<HTMLDivElement>, boolean] {
   const ref = useRef<HTMLDivElement>(null);
@@ -179,6 +190,7 @@ function Reveal({ children, delay = 0 }: { children: React.ReactNode; delay?: nu
 export function LandingPage({ onLaunch }: LandingPageProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [heroRef, heroVisible] = useInView(0.1);
+  const parallaxY = useParallax(0.3);
   const tvlCount  = useCounter(125440, heroVisible, 0, 1600);
   const apyCount  = useCounter(7.42,   heroVisible, 2, 1400);
   const txCount   = useCounter(98412,  heroVisible, 0, 1800);
@@ -233,16 +245,30 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
       </header>
 
       {/* ── Hero ── */}
-      <section className="relative pt-24 pb-20 px-6 text-center overflow-hidden">
-        {/* Background glow */}
+      <section className="relative pt-24 pb-20 px-6 text-center overflow-hidden" style={{ minHeight: '92vh' }}>
+        {/* Parallax sci-fi background image */}
+        <div className="absolute inset-0 pointer-events-none will-change-transform"
+          style={{ transform: `translateY(${parallaxY}px)`, transition: 'transform 0.05s linear' }}>
+          <img
+            src="https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&w=1800&q=80"
+            alt=""
+            aria-hidden="true"
+            className="w-full h-full object-cover object-center opacity-[0.42]"
+            style={{ filter: 'saturate(1.4) brightness(0.9)' }}
+          />
+        </div>
+        {/* Dual-layer overlay: radial vignette + grid */}
         <div className="absolute inset-0 pointer-events-none" style={{
-          background: 'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(6,182,212,0.08) 0%, transparent 70%)',
+          background: 'radial-gradient(ellipse 90% 70% at 50% 50%, rgba(249,250,251,0.0) 0%, rgba(249,250,251,0.45) 55%, rgba(249,250,251,0.92) 100%)',
         }} />
-        {/* Grid texture — dark lines on light bg */}
         <div className="absolute inset-0 pointer-events-none"
-          style={{ backgroundImage: 'linear-gradient(rgba(17,24,39,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(17,24,39,0.06) 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
+          style={{ backgroundImage: 'linear-gradient(rgba(17,24,39,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(17,24,39,0.05) 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
+        {/* Cyan ambient top glow */}
+        <div className="absolute inset-0 pointer-events-none" style={{
+          background: 'radial-gradient(ellipse 70% 40% at 50% 0%, rgba(6,182,212,0.10) 0%, transparent 65%)',
+        }} />
 
-        <div className="relative max-w-5xl mx-auto space-y-8">
+        <div className="relative max-w-5xl mx-auto space-y-8 flex flex-col items-center justify-center" style={{ minHeight: '72vh' }}>
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-mono font-medium"
             style={{ background: 'rgba(6,182,212,0.07)', borderColor: 'rgba(6,182,212,0.3)', color: '#0891b2' }}>
@@ -250,19 +276,27 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
             Deployed on Arc Mainnet · Chain ID 5042
           </div>
 
-          {/* Headline */}
-          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-none">
-            <span style={{ color: '#111827' }}>THE SELF-DRIVING</span>
-            <br />
-            <span style={{ background: 'linear-gradient(90deg,#06b6d4,#3b82f6,#8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-              USDC TREASURY
-            </span>
-            <br />
-            <span style={{ color: '#111827' }}>WITH </span>
-            <span style={{ background: 'linear-gradient(90deg,#10b981,#06b6d4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-              UNBREAKABLE GUARDRAILS
-            </span>
-          </h1>
+          {/* Headline — frosted backdrop for crisp contrast over the image */}
+          <div className="px-8 py-8 md:px-12 md:py-10 rounded-3xl" style={{
+            background: 'rgba(255,255,255,0.75)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            border: '1px solid rgba(255,255,255,0.6)',
+            boxShadow: '0 8px 48px rgba(6,182,212,0.12), 0 2px 0 rgba(255,255,255,0.9) inset',
+          }}>
+            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-none">
+              <span style={{ color: '#111827' }}>THE SELF-DRIVING</span>
+              <br />
+              <span style={{ background: 'linear-gradient(90deg,#06b6d4,#3b82f6,#8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+                USDC TREASURY
+              </span>
+              <br />
+              <span style={{ color: '#111827' }}>WITH </span>
+              <span style={{ background: 'linear-gradient(90deg,#10b981,#06b6d4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+                UNBREAKABLE GUARDRAILS
+              </span>
+            </h1>
+          </div>
 
           <p className="text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed" style={{ color: '#4B5563' }}>
             ArcGentic automates USDC yield allocation with AI-driven on-chain strategies, enforced spending guardrails, and Circle CCTP bridging — all without ever holding your keys.
