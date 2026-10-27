@@ -12,14 +12,13 @@ import {
   Copy, ExternalLink, RefreshCw, Layers, ArrowUpRight,
   Lock, Zap, ArrowDownUp, GitBranch,
   ArrowRight, Loader2, Wallet, Settings, Send, AlertCircle, History,
-  Sun, Moon,
+  Sun, Moon, Search, X, ChevronDown,
 } from 'lucide-react';
 import { TokenUSDC } from '@web3icons/react';
 import { Amount, formatUsdc } from '@/onchain-money';
 import { getUsdc, requireChain, buildTxExplorerUrl } from '@/onchain-facts';
 import { TxHistoryDrawer, useTxHistory, usePendingReceiptWatcher } from '@/components/TxHistory';
 import SwapCard from '@/components/SwapCard';
-import type { TxRecord } from '@/components/TxHistory';
 import { EcosystemSection } from '@/components/EcosystemFooter';
 import { USDCBalance } from '@/components/USDCBalance';
 import { LandingPage } from '@/components/LandingPage';
@@ -88,16 +87,31 @@ const SENDABLE_TOKENS = ARC_TOKENS.filter(t => ['USDC','EURC','cirBTC'].includes
 
 // ── Swap tokens (on Arc_Testnet, avoid USDC↔NATIVE — same asset) ─────────────
 // Both sides are now selectable. Exclude USDC↔USDC pair.
-const SWAP_TOKEN_META = ARC_TOKENS;
-type SwapToken = ArcTokenSymbol;
 
 
-// ── Bridge destinations (CCTP-supported mainnets) ─────────────────────────────
+
+// ── Bridge destinations — all CCTP v2 EVM mainnet chains supported by App Kit ──
+// App Kit BridgeChain enum keys: Arbitrum, Avalanche, Base, Codex, Cronos, Edge,
+// Ethereum, HyperEVM, Injective, Ink, Linea, Monad, Morph, Optimism, Pharos,
+// Plasma, Plume, Polygon, Sei, Sonic, Unichain, World_Chain, XDC, X_Layer
 const BRIDGE_CHAINS = [
-  { id: 'Ethereum',  label: 'Ethereum',     chainId: 1     },
-  { id: 'Base',      label: 'Base',         chainId: 8453  },
-  { id: 'Arbitrum',  label: 'Arbitrum One', chainId: 42161 },
-  { id: 'Optimism',  label: 'OP Mainnet',   chainId: 10    },
+  { id: 'Ethereum',   label: 'Ethereum',    chainId: 1,     icon: '🔷', fast: true  },
+  { id: 'Base',       label: 'Base',        chainId: 8453,  icon: '🔵', fast: true  },
+  { id: 'Arbitrum',   label: 'Arbitrum',    chainId: 42161, icon: '🔵', fast: true  },
+  { id: 'Optimism',   label: 'OP Mainnet',  chainId: 10,    icon: '🔴', fast: true  },
+  { id: 'Polygon',    label: 'Polygon',     chainId: 137,   icon: '🟣', fast: false },
+  { id: 'Avalanche',  label: 'Avalanche',   chainId: 43114, icon: '🔺', fast: false },
+  { id: 'Unichain',   label: 'Unichain',    chainId: 130,   icon: '🦄', fast: true  },
+  { id: 'Linea',      label: 'Linea',       chainId: 59144, icon: '⬛', fast: true  },
+  { id: 'Sonic',      label: 'Sonic',       chainId: 146,   icon: '⚡', fast: false },
+  { id: 'World_Chain',label: 'World Chain', chainId: 480,   icon: '🌐', fast: true  },
+  { id: 'Ink',        label: 'Ink',         chainId: 57073, icon: '🖊', fast: true  },
+  { id: 'Plume',      label: 'Plume',       chainId: 98865, icon: '🪶', fast: true  },
+  { id: 'Sei',        label: 'Sei',         chainId: 1329,  icon: '🌊', fast: false },
+  { id: 'Monad',      label: 'Monad',       chainId: 10143, icon: '🟪', fast: false },
+  { id: 'HyperEVM',   label: 'HyperEVM',    chainId: 998,   icon: '⚙️', fast: false },
+  { id: 'XDC',        label: 'XDC',         chainId: 50,    icon: '🔶', fast: false },
+  { id: 'Codex',      label: 'Codex',       chainId: 5115,  icon: '📖', fast: true  },
 ] as const;
 type BridgeChainId = (typeof BRIDGE_CHAINS)[number]['id'];
 
@@ -308,19 +322,6 @@ function QuickActionCard({ icon: Icon, label, desc, color, onClick }: {
   );
 }
 
-// ── Lerped balance display ─────────────────────────────────────────────────────
-function LerpedBalance({ raw, loading, decimals }: { raw: bigint | undefined; loading: boolean; decimals: number }) {
-  const numeric = raw !== undefined ? Number(raw) / Math.pow(10, decimals) : null;
-  const lerped = useLerpedNumber(numeric);
-  if (loading) return <span className="inline-block w-52 h-12 rounded-xl bg-white/10 animate-pulse" />;
-  if (raw === undefined) return <p className="display text-5xl font-bold text-[var(--ink)] tabular">—</p>;
-  return (
-    <p className="display text-5xl font-bold text-[var(--ink)] tabular leading-none"
-      style={{ textShadow: '0 0 48px rgba(16,185,129,0.22), 0 0 12px rgba(16,185,129,0.12)' }}>
-      ${lerped.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-    </p>
-  );
-}
 
 function AddressRow({ label, value }: { label: string; value: string | undefined }) {
   const [copied, setCopied] = useState(false);
@@ -349,38 +350,6 @@ function AddressRow({ label, value }: { label: string; value: string | undefined
   );
 }
 
-// ── Input field used in Swap + Bridge ─────────────────────────────────────────
-function AmountInput({ value, onChange, label, placeholder = '0.00' }: {
-  value: string; onChange: (v: string) => void; label: string; placeholder?: string;
-}) {
-  return (
-    <div className="ag-input p-4">
-      <label className="text-[10px] font-bold uppercase tracking-[0.10em] text-[var(--subtle)] syne block mb-2">{label}</label>
-      <input
-        type="number"
-        min="0"
-        step="any"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-transparent display text-2xl font-bold text-[var(--ink)] placeholder-white/15 focus:outline-none tabular"
-      />
-    </div>
-  );
-}
-
-
-function StatusBadge({ ok }: { ok: boolean }) {
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-      ok ? 'bg-emerald-950/50 text-emerald-400 border-emerald-800/40'
-         : 'bg-amber-950/50 text-amber-400 border-amber-800/40'
-    }`}>
-      <span className={`w-1 h-1 rounded-full ${ok ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-      {ok ? 'ACTIVE' : 'DISABLED'}
-    </span>
-  );
-}
 
 // ── Strategies ─────────────────────────────────────────────────────────────────
 // Protocol addresses below are PLACEHOLDER addresses for Arc Mainnet.
@@ -435,19 +404,21 @@ type LogEntry = { id: string; type: 'EXECUTION'|'GUARDRAIL'|'ANALYTICS'|'WARNING
 const LOG_ICON: Record<LogEntry['type'], React.ElementType> = { EXECUTION: ArrowUpRight, GUARDRAIL: ShieldAlert, ANALYTICS: Activity, WARNING: AlertTriangle };
 const LOG_COLOR: Record<LogEntry['type'], string> = { EXECUTION: 'text-[var(--accent)]', GUARDRAIL: 'text-emerald-400', ANALYTICS: 'text-[var(--subtle)]', WARNING: 'text-amber-400' };
 
-type Tab = 'dashboard' | 'strategies' | 'guardrails' | 'swap' | 'bridge';
+type Tab = 'dashboard' | 'strategies' | 'guardrails' | 'swap';
+type SwapMode = 'swap' | 'bridge';
+
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: 'dashboard',   label: 'Dashboard',   icon: Activity    },
-  { id: 'strategies',  label: 'Strategies',  icon: TrendingUp  },
-  { id: 'guardrails',  label: 'Guardrails',  icon: ShieldAlert },
-  { id: 'swap',        label: 'Swap',        icon: ArrowDownUp },
-  { id: 'bridge',      label: 'Bridge',      icon: GitBranch   },
+  { id: 'dashboard',   label: 'Dashboard',     icon: Activity    },
+  { id: 'strategies',  label: 'Strategies',    icon: TrendingUp  },
+  { id: 'guardrails',  label: 'Guardrails',    icon: ShieldAlert },
+  { id: 'swap',        label: 'Swap & Bridge', icon: ArrowDownUp },
 ];
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [showApp, setShowApp] = useState(false);
-  const [tab, setTab] = useState<Tab>('dashboard');
+  const [tab, setTab]           = useState<Tab>('dashboard');
+  const [swapMode, setSwapMode] = useState<SwapMode>('swap');
   const [agentActive, setAgentActive] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([{
     id: 'seed-1', type: 'GUARDRAIL',
@@ -955,7 +926,9 @@ export default function App() {
   };
   const BRIDGE_STEP_NAMES = ['approve', 'burn', 'fetchAttestation', 'mint'] as const;
 
-  const [bridgePhase, setBridgePhase] = useState<'idle'|'bridging'|'done'|'error'>('idle');
+  const [bridgePhase, setBridgePhase]         = useState<'idle'|'bridging'|'done'|'error'>('idle');
+  const [bridgeDestSearch, setBridgeDestSearch]   = useState('');
+  const [destChainModalOpen, setDestChainModalOpen] = useState(false);
   const [bridgeError, setBridgeError] = useState('');
   const [bridgeSteps, setBridgeSteps] = useState<BridgeStep[]>([]);
   const [bridgeTxHash, setBridgeTxHash] = useState('');
@@ -1134,12 +1107,22 @@ export default function App() {
 
   const loading = vaultLoading;
 
+  // Force dark CSS vars while the app shell is visible
+  useEffect(() => {
+    document.documentElement.classList.add('dark');
+    return () => {
+      // Restore user preference when unmounted (back to landing)
+      const stored = localStorage.getItem('arcgentic-theme');
+      document.documentElement.classList.toggle('dark', stored === 'dark');
+    };
+  }, []);
+
   if (!showApp) {
     return <LandingPage onLaunch={() => setShowApp(true)} />;
   }
 
   return (
-    <div className="min-h-dvh" style={{ background: 'var(--bg-gradient)' }}>
+    <div className="min-h-dvh" style={{ background: '#0a0e1a' }}>
 
       {/* ── Header ─────────────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b border-black/[0.06] backdrop-blur-md bg-white/90">
@@ -1246,13 +1229,13 @@ export default function App() {
               onClick={() => setTab(t.id)}
               className={`flex items-center gap-1.5 px-4 py-2.5 text-[11px] font-semibold border-b-2 whitespace-nowrap transition-colors ${
                 tab === t.id
-                  ? 'border-sky-600 text-sky-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-900'
+                  ? 'border-cyan-500 text-cyan-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
               }`}
             >
               <t.icon className="w-3.5 h-3.5" />
               {t.label}
-              {(t.id === 'swap' || t.id === 'bridge') && (
+              {t.id === 'swap' && (
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] border border-[var(--accent)]/30">NEW</span>
               )}
             </button>
@@ -1347,18 +1330,40 @@ export default function App() {
                   />
                 </div>
 
+                {/* Status badges row */}
+                <div className="flex flex-wrap gap-2 mt-4 mb-4">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold"
+                    style={{ background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.25)' }}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />VAULT ACTIVE
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold"
+                    style={{ background: 'rgba(6,182,212,0.10)', color: '#67e8f9', border: '1px solid rgba(6,182,212,0.22)' }}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />GUARDRAILS ENFORCED
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold"
+                    style={{ background: 'rgba(139,92,246,0.10)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.22)' }}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />NON-CUSTODIAL
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold ml-auto"
+                    style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    Arc Mainnet · Chain 5042
+                  </span>
+                </div>
+
                 {/* Vault address + budget in one row */}
-                <div className="flex items-center justify-between gap-4 mt-5 flex-wrap">
+                <div className="flex items-center justify-between gap-4 pt-4 flex-wrap"
+                  style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <a href={`${chain.explorerBase}/address/${VAULT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-                    className="mono text-[11px] text-[var(--subtle)] hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
-                    {fmtAddr(VAULT_ADDRESS)} <ExternalLink className="w-3 h-3" />
+                    className="mono text-[11px] hover:opacity-80 transition-opacity flex items-center gap-1.5"
+                    style={{ color: 'rgba(255,255,255,0.4)' }}>
+                    {VAULT_ADDRESS.slice(0,10)}…{VAULT_ADDRESS.slice(-6)} <ExternalLink className="w-3 h-3" />
                   </a>
                   {!loading && dailyLimit !== undefined && spentToday !== undefined && (
                     <div className="flex items-center gap-3 flex-1 min-w-[160px] max-w-xs">
                       <div className="flex-1">
                         <BudgetBar spent={spentToday} limit={dailyLimit} />
                       </div>
-                      <span className="mono text-[10px] text-[var(--subtle)] shrink-0">{budgetPct.toFixed(1)}% used</span>
+                      <span className="mono text-[10px] shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }}>{budgetPct.toFixed(1)}% used</span>
                     </div>
                   )}
                 </div>
@@ -1369,26 +1374,27 @@ export default function App() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Daily Limit — clickable inline edit (owner only) */}
               <div
-                className={`relative rounded-2xl border p-5 flex flex-col gap-2.5 transition-all cursor-pointer
-                  ${limitEditOpen
-                    ? 'border-cyan-500/50 bg-cyan-950/20 col-span-2 lg:col-span-1'
-                    : 'border-cyan-500/20 bg-[var(--surface-glass)] hover:border-cyan-500/40'
-                  }`}
-                style={{ boxShadow: limitEditOpen ? '0 0 18px rgba(0,200,255,0.12)' : undefined }}
+                className={`relative rounded-2xl p-5 flex flex-col gap-2.5 transition-all cursor-pointer
+                  ${limitEditOpen ? 'col-span-2 lg:col-span-1' : ''}`}
+                style={{
+                  background: limitEditOpen ? 'rgba(6,182,212,0.08)' : 'rgba(6,182,212,0.05)',
+                  border: limitEditOpen ? '1px solid rgba(6,182,212,0.4)' : '1px solid rgba(6,182,212,0.15)',
+                  boxShadow: limitEditOpen ? '0 0 18px rgba(6,182,212,0.12)' : undefined,
+                }}
                 onClick={() => { if (!limitEditOpen && isOwner) { setLimitEditOpen(true); setDashLimitInput(''); } }}
                 title={isOwner ? 'Click to edit daily limit' : undefined}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)]">Daily Limit</span>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(103,232,249,0.6)' }}>Daily Limit</span>
                   <div className="flex items-center gap-1.5">
-                    {isOwner && !limitEditOpen && <Settings className="w-3 h-3 text-cyan-500/60" />}
-                    <div className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
-                      <Lock className="w-3.5 h-3.5 text-cyan-400" />
+                    {isOwner && !limitEditOpen && <Settings className="w-3 h-3" style={{ color: 'rgba(103,232,249,0.4)' }} />}
+                    <div className="p-1.5 rounded-lg" style={{ background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.2)' }}>
+                      <Lock className="w-3.5 h-3.5" style={{ color: '#67e8f9' }} />
                     </div>
                   </div>
                 </div>
-                <p className="display text-2xl font-bold text-[var(--ink)] tabular">{loading ? '…' : `$${fmtUsdc(dailyLimit)}`}</p>
-                <p className="text-[11px] text-[var(--subtle)]">{isOwner ? 'Click to update' : 'Max spend / day'}</p>
+                <p className="display text-2xl font-bold tabular text-white">{loading ? '…' : `$${fmtUsdc(dailyLimit)}`}</p>
+                <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.35)' }}>{isOwner ? 'Click to update' : 'Max spend / day'}</p>
 
                 {/* Inline edit row — only when open */}
                 {limitEditOpen && (
@@ -1430,10 +1436,10 @@ export default function App() {
             {/* ── Allocation ring + Quick actions (side by side on md+) ─────── */}
             <div className="grid md:grid-cols-2 gap-4">
               {/* Ring */}
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-glass)] backdrop-blur-md p-5 space-y-4">
+              <div className="rounded-2xl p-5 space-y-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)]">Portfolio Allocation</span>
-                  <span className="text-[10px] text-[var(--subtle)]">{STRATEGIES.length} strategies</span>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.4)' }}>Portfolio Allocation</span>
+                  <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>{STRATEGIES.length} strategies</span>
                 </div>
                 <AllocationRing strategies={STRATEGIES} weightedApy={
                   (STRATEGIES.reduce((a, s) => a + s.apy * s.allocated, 0) /
@@ -1442,31 +1448,31 @@ export default function App() {
               </div>
 
               {/* Quick actions */}
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-glass)] backdrop-blur-md p-5 space-y-3">
-                <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)] block">Quick Actions</span>
+              <div className="rounded-2xl p-5 space-y-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
+                <span className="text-[10px] font-bold uppercase tracking-[0.08em] block" style={{ color: 'rgba(255,255,255,0.4)' }}>Quick Actions</span>
                 <div className="flex gap-3 flex-wrap">
                   <QuickActionCard icon={Send}        label="Send"   desc="Transfer USDC"        color="cyan"   onClick={() => {/* handled below via Send form */}} />
-                  <QuickActionCard icon={ArrowDownUp} label="Swap"   desc="USDC → token"         color="purple" onClick={() => setTab('swap')}   />
-                  <QuickActionCard icon={GitBranch}   label="Bridge" desc="Cross-chain transfer"  color="green"  onClick={() => setTab('bridge')} />
+                  <QuickActionCard icon={ArrowDownUp} label="Swap"   desc="USDC → token"         color="purple" onClick={() => { setTab('swap'); setSwapMode('swap');   }} />
+                  <QuickActionCard icon={GitBranch}   label="Bridge" desc="Cross-chain transfer"  color="green"  onClick={() => { setTab('swap'); setSwapMode('bridge'); }} />
                 </div>
               </div>
             </div>
 
             {/* ── Addresses + Activity log ───────────────────────────────────── */}
             <div className="grid lg:grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-glass)] backdrop-blur-md p-5">
-                <h2 className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)] mb-4">Vault Addresses</h2>
+              <div className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <h2 className="text-[10px] font-bold uppercase tracking-[0.08em] mb-4" style={{ color: 'rgba(255,255,255,0.4)' }}>Vault Addresses</h2>
                 <AddressRow label="Vault Contract" value={VAULT_ADDRESS} />
                 <AddressRow label="Owner"          value={ownerAddr} />
                 <AddressRow label="AI Agent"       value={agentAddr} />
                 <AddressRow label="USDC Token"     value={usdcFact.address} />
               </div>
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-glass)] backdrop-blur-md p-5 flex flex-col">
+              <div className="rounded-2xl p-5 flex flex-col" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--subtle)]">Activity Log</h2>
-                  <span className="mono text-[10px] text-[var(--subtle)]">{logs.length} entries</span>
+                  <h2 className="text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.4)' }}>Activity Log</h2>
+                  <span className="mono text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>{logs.length} entries</span>
                 </div>
-                <div className="divide-y divide-[var(--border)] overflow-y-auto max-h-60 scrollbar-thin">
+                <div className="overflow-y-auto max-h-60 scrollbar-thin" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   {logs.length === 0 && (
                     <p className="text-[11px] text-[var(--subtle)] py-4 text-center">No activity yet</p>
                   )}
@@ -1756,7 +1762,7 @@ export default function App() {
 
             {/* Info notice — only shown while no protocol is allowlisted */}
             {strategyAllowed.every(a => !a) && (
-              <div className="rounded-xl border border-amber-800/40 bg-amber-950/20 px-4 py-3 text-[12px] text-amber-300 leading-relaxed">
+              <div className="rounded-xl px-4 py-3 text-[12px] leading-relaxed" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#fcd34d' }}>
                 No protocols are allowlisted yet.{isOwner
                   ? ' Toggle "Allowlist" on each strategy below to register the protocol address on-chain, then allocate USDC.'
                   : ' The vault owner must allowlist each protocol before execution is possible.'}
@@ -1765,21 +1771,21 @@ export default function App() {
 
             {/* Vault USDC + daily budget summary */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] mb-1">Vault Balance</p>
-                <p className="display font-bold text-[var(--ink)] tabular">
+              <div className="rounded-xl p-4" style={{ background: 'rgba(6,182,212,0.05)', border: '1px solid rgba(6,182,212,0.15)' }}>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'rgba(103,232,249,0.6)' }}>Vault Balance</p>
+                <p className="display font-bold text-white tabular">
                   {vaultUsdcBalance !== undefined ? `$${Amount.fromRaw(vaultUsdcBalance, usdcFact.decimals).toFixed(2)}` : '—'}
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] mb-1">Remaining Today</p>
-                <p className="display font-bold text-[var(--success)] tabular">
+              <div className="rounded-xl p-4" style={{ background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.15)' }}>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'rgba(52,211,153,0.6)' }}>Remaining Today</p>
+                <p className="display font-bold tabular" style={{ color: '#34d399' }}>
                   {remaining !== undefined ? `$${fmtUsdc(remaining)}` : '—'}
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 col-span-2 sm:col-span-1">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] mb-1">Weighted APY</p>
-                <p className="display font-bold text-[var(--accent)] tabular">
+              <div className="rounded-xl p-4 col-span-2 sm:col-span-1" style={{ background: 'rgba(139,92,246,0.05)', border: '1px solid rgba(139,92,246,0.15)' }}>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'rgba(196,181,253,0.6)' }}>Weighted APY</p>
+                <p className="display font-bold tabular" style={{ color: '#a78bfa' }}>
                   {(() => {
                     const total = STRATEGIES.reduce((a, s) => a + s.allocated, 0);
                     const w = STRATEGIES.reduce((a, s) => a + s.apy * s.allocated, 0);
@@ -1797,9 +1803,12 @@ export default function App() {
               const txHash   = strategyTxHashes[s.id];
               const inputVal = strategyInputs[s.id] ?? '';
               return (
-                <div key={s.id} className={`rounded-2xl border bg-[var(--surface)] overflow-hidden transition-colors ${
-                  allowed ? 'border-[var(--border-strong)]' : 'border-[var(--border)]'
-                }`}>
+                <div key={s.id} className="rounded-2xl overflow-hidden transition-all"
+                  style={{
+                    background: allowed ? 'rgba(6,182,212,0.04)' : 'rgba(255,255,255,0.03)',
+                    border: allowed ? '1px solid rgba(6,182,212,0.22)' : '1px solid rgba(255,255,255,0.08)',
+                    boxShadow: allowed ? '0 0 12px rgba(6,182,212,0.06)' : undefined,
+                  }}>
                   {/* Card header */}
                   <div className="p-5 flex flex-col sm:flex-row sm:items-start gap-4">
                     <div className="flex-1 space-y-1.5 min-w-0">
@@ -1935,39 +1944,66 @@ export default function App() {
         {/* ══ Guardrails ══════════════════════════════════════════════════════════ */}
         {tab === 'guardrails' && (
           <div className="space-y-3">
+
+            {/* Security control center header */}
+            <div className="rounded-2xl p-5 flex items-center justify-between flex-wrap gap-3"
+              style={{ background: 'linear-gradient(135deg,rgba(6,182,212,0.06) 0%,rgba(139,92,246,0.06) 100%)', border: '1px solid rgba(6,182,212,0.15)' }}>
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl" style={{ background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.2)' }}>
+                  <ShieldAlert className="w-5 h-5" style={{ color: '#67e8f9' }} />
+                </div>
+                <div>
+                  <h2 className="text-[15px] font-extrabold text-white tracking-tight">Security Control Center</h2>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>On-chain guardrails — enforced by smart contract logic</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold"
+                  style={{ background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.25)' }}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />ALL SYSTEMS ACTIVE
+                </span>
+              </div>
+            </div>
+
             {/* Status cards */}
             {[
-              { icon: Lock,          title: 'Daily Spend Cap',       live: `$${fmtUsdc(dailyLimit)} / day`, desc: 'Hard limit enforced on-chain. Resets every 24 h from the last window start.' },
-              { icon: ShieldAlert,   title: 'Protocol Allowlist',    live: 'On-chain mapping',             desc: 'executeStrategy reverts unless the target address is pre-approved via setAllowedProtocol.' },
-              { icon: Zap,           title: 'Code-Existence Guard',  live: 'Active',                       desc: 'Calls revert if targetProtocol has no bytecode, preventing execution against EOAs.' },
-              { icon: CheckCircle2,  title: 'Allowance Reset',       live: 'Post-call',                    desc: 'ERC-20 allowance is force-reset to 0 after every strategy call, eliminating residual drain risk.' },
+              { icon: Lock,          title: 'Daily Spend Cap',       live: `$${fmtUsdc(dailyLimit)} / day`, desc: 'Hard limit enforced on-chain. Resets every 24 h from the last window start.', accent: '#67e8f9', accentBg: 'rgba(6,182,212,0.08)', accentBorder: 'rgba(6,182,212,0.2)' },
+              { icon: ShieldAlert,   title: 'Protocol Allowlist',    live: 'On-chain mapping',             desc: 'executeStrategy reverts unless the target address is pre-approved via setAllowedProtocol.', accent: '#34d399', accentBg: 'rgba(52,211,153,0.08)', accentBorder: 'rgba(52,211,153,0.2)' },
+              { icon: Zap,           title: 'Code-Existence Guard',  live: 'Active',                       desc: 'Calls revert if targetProtocol has no bytecode, preventing execution against EOAs.', accent: '#c4b5fd', accentBg: 'rgba(139,92,246,0.08)', accentBorder: 'rgba(139,92,246,0.2)' },
+              { icon: CheckCircle2,  title: 'Allowance Reset',       live: 'Post-call',                    desc: 'ERC-20 allowance is force-reset to 0 after every strategy call, eliminating residual drain risk.', accent: '#34d399', accentBg: 'rgba(52,211,153,0.08)', accentBorder: 'rgba(52,211,153,0.2)' },
             ].map(g => (
-              <div key={g.title} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 flex items-start gap-4 hover:bg-[var(--surface-strong)] transition-colors">
-                <div className="p-2.5 rounded-xl shrink-0 bg-emerald-950/50 border border-emerald-800/30">
-                  <g.icon className="w-[1.125rem] h-[1.125rem] text-emerald-400" />
+              <div key={g.title} className="rounded-2xl p-5 flex items-start gap-4 transition-all hover:scale-[1.005]"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="p-2.5 rounded-xl shrink-0" style={{ background: g.accentBg, border: `1px solid ${g.accentBorder}` }}>
+                  <g.icon className="w-[1.125rem] h-[1.125rem]" style={{ color: g.accent }} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-1 flex-wrap">
-                    <span className="font-semibold text-[var(--ink)]">{g.title}</span>
-                    <StatusBadge ok={true} />
-                    <span className="mono text-[11px] text-[var(--accent)] ml-auto">{g.live}</span>
+                  <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                    <span className="font-bold text-white text-[13px]">{g.title}</span>
+                    <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full"
+                      style={{ background: 'rgba(52,211,153,0.1)', color: '#34d399', border: '1px solid rgba(52,211,153,0.2)' }}>
+                      <span className="w-1 h-1 rounded-full bg-emerald-400" />ENFORCED
+                    </span>
+                    <span className="mono text-[11px] ml-auto font-semibold" style={{ color: g.accent }}>{g.live}</span>
                   </div>
-                  <p className="text-[12px] text-[var(--subtle)] text-pretty">{g.desc}</p>
+                  <p className="text-[12px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.4)' }}>{g.desc}</p>
                 </div>
               </div>
             ))}
 
             {/* ── Owner write controls ── */}
-            <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-strong)] p-5 space-y-5">
+            <div className="rounded-2xl p-5 space-y-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div className="flex items-center gap-2">
-                <Settings className="w-4 h-4 text-[var(--accent)]" />
-                <h3 className="display font-bold text-[var(--ink)] text-[14px]">Owner Controls</h3>
-                <span className="text-[10px] text-[var(--subtle)] ml-auto">Requires owner wallet</span>
+                <div className="p-1.5 rounded-lg" style={{ background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.2)' }}>
+                  <Settings className="w-3.5 h-3.5" style={{ color: '#67e8f9' }} />
+                </div>
+                <h3 className="font-extrabold text-white text-[14px]">Owner Controls</h3>
+                <span className="text-[10px] ml-auto" style={{ color: 'rgba(255,255,255,0.3)' }}>Requires owner wallet</span>
               </div>
 
               {/* Update daily limit */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block">
+                <label className="text-[10px] font-bold uppercase tracking-widest block" style={{ color: 'rgba(255,255,255,0.4)' }}>
                   Update Daily Limit (USDC)
                 </label>
                 <div className="flex gap-2">
@@ -1976,12 +2012,14 @@ export default function App() {
                     value={newLimitInput}
                     onChange={e => setNewLimitInput(e.target.value)}
                     placeholder={`Current: $${fmtUsdc(dailyLimit)}`}
-                    className="flex-1 min-h-[48px] rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] px-4 text-[13px] font-semibold text-[var(--ink)] placeholder-[var(--subtle)]/60 focus:outline-none focus:border-[var(--border-strong)] tabular"
+                    className="flex-1 min-h-[48px] rounded-xl px-4 text-[13px] font-semibold text-white placeholder-white/20 focus:outline-none tabular"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
                   />
                   <button
                     onClick={() => void handleUpdateLimit()}
                     disabled={limitPending || limitConfirming || !newLimitInput}
-                    className="min-h-[48px] px-5 rounded-xl bg-[var(--accent)] text-[#0d1b2f] text-[12px] font-bold hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
+                    className="min-h-[48px] px-5 rounded-xl text-[12px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
+                    style={{ background: 'linear-gradient(135deg,#06b6d4,#3b82f6)', color: '#fff' }}
                   >
                     {limitPending || limitConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                     {limitConfirming ? 'Confirming…' : limitPending ? 'Sending…' : 'Set Limit'}
@@ -1997,7 +2035,7 @@ export default function App() {
 
               {/* Update agent address */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block">
+                <label className="text-[10px] font-bold uppercase tracking-widest block" style={{ color: 'rgba(255,255,255,0.4)' }}>
                   Update AI Agent Address
                 </label>
                 <div className="flex gap-2">
@@ -2006,12 +2044,14 @@ export default function App() {
                     value={newAgentInput}
                     onChange={e => setNewAgentInput(e.target.value)}
                     placeholder="0x… new agent address"
-                    className="flex-1 min-h-[48px] rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] px-4 text-[12px] mono text-[var(--ink)] placeholder-[var(--subtle)]/60 focus:outline-none focus:border-[var(--border-strong)]"
+                    className="flex-1 min-h-[48px] rounded-xl px-4 text-[12px] mono text-white placeholder-white/20 focus:outline-none"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
                   />
                   <button
                     onClick={() => void handleUpdateAgent()}
                     disabled={agentTxPending || agentTxConfirming || !newAgentInput}
-                    className="min-h-[48px] px-5 rounded-xl bg-[var(--accent)] text-[#0d1b2f] text-[12px] font-bold hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
+                    className="min-h-[48px] px-5 rounded-xl text-[12px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
+                    style={{ background: 'linear-gradient(135deg,#06b6d4,#3b82f6)', color: '#fff' }}
                   >
                     {agentTxPending || agentTxConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                     {agentTxConfirming ? 'Confirming…' : agentTxPending ? 'Sending…' : 'Update Agent'}
@@ -2026,11 +2066,11 @@ export default function App() {
               </div>
 
               {/* Emergency withdraw */}
-              <div className="pt-2 border-t border-[var(--border)]">
+              <div className="pt-3" style={{ borderTop: '1px solid rgba(239,68,68,0.15)' }}>
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div>
-                    <p className="text-[12px] font-semibold text-[var(--danger)]">Emergency Withdraw All</p>
-                    <p className="text-[11px] text-[var(--subtle)] mt-0.5">Drains 100% of vault USDC to the owner address.</p>
+                    <p className="text-[12px] font-semibold" style={{ color: '#f87171' }}>Emergency Withdraw All</p>
+                    <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>Drains 100% of vault USDC to the owner address.</p>
                   </div>
                   <button
                     onClick={() => void handleEmergencyWithdraw()}
@@ -2046,241 +2086,351 @@ export default function App() {
           </div>
         )}
 
-        {/* ══ Swap ════════════════════════════════════════════════════════════════ */}
+        {/* ══ Swap & Bridge ═══════════════════════════════════════════════════════ */}
         {tab === 'swap' && (
-          <div className="max-w-[520px] mx-auto px-1">
-            <SwapCard />
-          </div>
-        )}
+          <div className="max-w-[520px] mx-auto space-y-4">
 
-        {/* ══ Bridge ══════════════════════════════════════════════════════════════ */}
-        {tab === 'bridge' && (
-          <div className="max-w-lg mx-auto space-y-5">
-            {/* Circle CCTP branding chips */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border border-violet-500/30 bg-violet-950/25 text-violet-300">
-                <span className="w-2 h-2 rounded-full border border-violet-400 inline-block" />
-                Circle CCTP v2
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border border-cyan-500/25 bg-cyan-950/20 text-cyan-300">
-                <TokenUSDC variant="branded" size={14} />
-                USDC Burn-and-Mint
-              </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] font-bold border border-amber-500/20 bg-amber-950/15 text-amber-400">
-                ~8–20 s Fast Mode
-              </span>
-            </div>
-            {/* Info banner */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[11px] text-[var(--subtle)]">
-              Cross-chain transfers use <span className="text-[var(--ink-2)] font-medium">Circle CCTP v2</span> (burn-and-mint).
-              Fast mode completes in ~8–20 s. No kit key required.
-            </div>
-
-            <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-strong)] p-6 space-y-5">
-              <h2 className="display text-lg font-bold text-[var(--ink)]">Bridge Assets</h2>
-
-              {/* From */}
-              <div className="rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] p-4">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block mb-3">From</label>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)]">
-                    <span className="text-[12px] font-bold text-[var(--ink)]">Arc Mainnet</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--border)]">
-                    <TokenUSDC variant="branded" size={16} />
-                    <span className="text-[12px] font-bold text-[var(--ink)]">USDC</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Amount */}
-              <AmountInput label="Amount to Bridge" value={bridgeAmount} onChange={v => { setBridgeAmount(v); if (bridgePhase === 'done') setBridgePhase('idle'); }} placeholder="0.00" />
-
-              {/* Arrow */}
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-px bg-[var(--border)]" />
-                <div className="p-2 rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-                  <ArrowRight className="w-4 h-4 text-[var(--accent)]" />
-                </div>
-                <div className="flex-1 h-px bg-[var(--border)]" />
-              </div>
-
-              {/* To chain */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)] block mb-2">Destination Network</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {BRIDGE_CHAINS.map(c => (
-                    <button
-                      key={c.id}
-                      onClick={() => { setBridgeDest(c.id); if (bridgePhase === 'done') setBridgePhase('idle'); }}
-                      className={`py-3 px-4 rounded-xl border text-[12px] font-semibold text-left transition-colors ${
-                        bridgeDest === c.id
-                          ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
-                          : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:bg-white/5'
-                      }`}
-                    >
-                      {c.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Route summary */}
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] divide-y divide-[var(--border)] text-[12px]">
-                <div className="flex justify-between px-4 py-2.5">
-                  <span className="text-[var(--subtle)]">Protocol</span>
-                  <span className="font-semibold text-[var(--ink)]">Circle CCTP v2</span>
-                </div>
-                <div className="flex justify-between px-4 py-2.5">
-                  <span className="text-[var(--subtle)]">Transfer speed</span>
-                  <span className="font-semibold text-emerald-400">Fast (~8–20 s)</span>
-                </div>
-                <div className="flex justify-between px-4 py-2.5">
-                  <span className="text-[var(--subtle)]">Destination</span>
-                  <span className="font-semibold text-[var(--ink)]">{destChain.label}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2.5">
-                  <span className="text-[var(--subtle)]">Gas token (source)</span>
-                  <span className="font-semibold text-[var(--ink)]">USDC (Arc native)</span>
-                </div>
-                {(() => {
-                  const destUsdcAddr = getUsdc(destChain.chainId)?.address;
-                  return destUsdcAddr ? (
-                    <div className="flex flex-col gap-1 px-4 py-2.5">
-                      <span className="text-[var(--subtle)]">USDC on {destChain.label}</span>
-                      <a
-                        href={`${requireChain(destChain.chainId).explorerBase}/address/${destUsdcAddr}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="mono text-[10px] text-[var(--accent)] hover:text-[var(--accent-hover)] flex items-center gap-1 break-all min-w-0"
-                      >
-                        {destUsdcAddr} <ExternalLink className="w-3 h-3 shrink-0" />
-                      </a>
-                    </div>
-                  ) : null;
-                })()}
-              </div>
-
-              {/* ── Live step tracker ─── */}
-              {bridgeSteps.length > 0 && (
-                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--subtle)]">CCTP Steps</span>
-                    {bridgePhase === 'bridging' && <Loader2 className="w-3.5 h-3.5 text-[var(--accent)] animate-spin" />}
-                    {bridgePhase === 'done'     && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                    {bridgePhase === 'error'    && <AlertTriangle className="w-3.5 h-3.5 text-[var(--danger)]" />}
-                  </div>
-                  {bridgeSteps.map((s) => {
-                    const STEP_LABELS: Record<string, string> = {
-                      approve:          'Step 1 · Approve USDC',
-                      burn:             'Step 2 · Burn on Arc Mainnet',
-                      fetchAttestation: 'Step 3 · Circle Attestation',
-                      mint:             'Step 4 · Mint on Destination',
-                    };
-                    const isActive  = s.state === 'active';
-                    const isSuccess = s.state === 'success';
-                    const isError   = s.state === 'error';
-                    const isPending = s.state === 'pending';
-                    return (
-                      <div key={s.name} className={`px-4 py-3 border-b border-[var(--border)] last:border-0 flex items-start gap-3 ${isActive ? 'bg-[var(--accent)]/5' : ''}`}>
-                        <div className="shrink-0 mt-0.5">
-                          {isSuccess && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-                          {isActive  && <Loader2     className="w-4 h-4 text-[var(--accent)] animate-spin" />}
-                          {isError   && <AlertTriangle className="w-4 h-4 text-[var(--danger)]" />}
-                          {isPending && <div className="w-4 h-4 rounded-full border border-white/20 bg-white/5" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-[12px] font-semibold ${isSuccess ? 'text-[var(--ink)]' : isError ? 'text-[var(--danger)]' : isActive ? 'text-[var(--accent)]' : 'text-[var(--subtle)]'}`}>
-                            {STEP_LABELS[s.name] ?? s.name}
-                          </p>
-                          {s.txHash && (
-                            <a
-                              href={s.explorerUrl ?? buildTxExplorerUrl(CHAIN_ID, s.txHash)}
-                              target="_blank" rel="noopener noreferrer"
-                              className="mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)] flex items-center gap-1 mt-0.5"
-                            >
-                              {s.txHash.slice(0, 16)}… <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                          {s.error && (
-                            <p className="text-[11px] text-[var(--danger)] mt-0.5">{s.error}</p>
-                          )}
-                        </div>
-                        <span className={`text-[9px] font-bold mono shrink-0 mt-0.5 px-1.5 py-0.5 rounded-full border ${
-                          isSuccess ? 'text-emerald-400 border-emerald-800/40 bg-emerald-950/40'
-                          : isError  ? 'text-[var(--danger)] border-[var(--danger)]/30 bg-[var(--danger)]/10'
-                          : isActive ? 'text-[var(--accent)] border-[var(--accent)]/30 bg-[var(--accent)]/10'
-                          : 'text-white/20 border-white/10 bg-white/5'
-                        }`}>
-                          {s.state.toUpperCase()}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Attestation note (step 3 active) */}
-              {bridgePhase === 'bridging' && bridgeSteps.find(s => s.name === 'fetchAttestation')?.state === 'active' && (
-                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[11px] text-[var(--subtle)] leading-relaxed">
-                  Circle is signing the burn proof on the IRIS attestation service. This typically takes 8–20 s in fast mode.{' '}
-                  <a href="https://iris-api-sandbox.circle.com" target="_blank" rel="noopener noreferrer"
-                    className="text-[var(--accent)] hover:text-[var(--accent-hover)] inline-flex items-center gap-1">
-                    View IRIS API <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
-
-              {/* Error banner + retry */}
-              {bridgePhase === 'error' && (
-                <div className="rounded-xl border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-4 py-3 space-y-2">
-                  <p className="text-[12px] text-[var(--danger)] font-semibold">{bridgeError}</p>
-                  {lastBridgeResult && (
-                    <button
-                      onClick={() => void handleRetryBridge()}
-                      className="text-[11px] font-bold text-[var(--accent)] hover:text-[var(--accent-hover)] flex items-center gap-1.5"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" /> Retry from failed step
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Success banner */}
-              {bridgePhase === 'done' && (
-                <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/30 px-4 py-3 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span className="text-[12px] text-emerald-400 font-semibold">Bridge confirmed — all 4 steps complete</span>
-                    </div>
-                  </div>
-                  {bridgeTxHash && (
-                    <a href={buildTxExplorerUrl(CHAIN_ID, bridgeTxHash)} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 mono text-[10px] text-[var(--subtle)] hover:text-[var(--accent)]">
-                      Burn tx: {bridgeTxHash.slice(0, 18)}… <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-                  <p className="text-[11px] text-[var(--subtle)]">USDC has been minted on <span className="text-[var(--ink-2)] font-medium">{destChain.label}</span>. Check your wallet on that network.</p>
-                </div>
-              )}
-
-              {/* CTA */}
-              {!walletAddress ? (
-                <div className="flex justify-center py-1">
-                  <ConnectKitButton label="Connect Wallet to Bridge" />
-                </div>
-              ) : (
+            {/* Sub-tab toggle */}
+            <div className="flex items-center gap-1 p-1 rounded-2xl border border-[var(--border)] bg-[var(--surface)] w-fit">
+              {(['swap', 'bridge'] as const).map(m => (
                 <button
-                  onClick={() => void handleBridge()}
-                  disabled={!bridgeAmount || parseFloat(bridgeAmount || '0') <= 0 || bridgePhase === 'bridging'}
-                  className="w-full min-h-[48px] rounded-xl bg-[var(--accent)] text-[#0d1b2f] text-[13px] font-bold hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                  key={m}
+                  onClick={() => setSwapMode(m)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-bold transition-all ${
+                    swapMode === m
+                      ? 'bg-white shadow-sm text-[var(--ink)] border border-[var(--border)]'
+                      : 'text-[var(--subtle)] hover:text-[var(--ink)]'
+                  }`}
                 >
-                  {bridgePhase === 'bridging'
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Bridging…</>
-                    : <><GitBranch className="w-4 h-4" /> Bridge Assets</>}
+                  {m === 'swap' ? <ArrowDownUp className="w-3.5 h-3.5" /> : <GitBranch className="w-3.5 h-3.5" />}
+                  {m === 'swap' ? 'Swap' : 'Bridge'}
                 </button>
-              )}
+              ))}
             </div>
+
+            {swapMode === 'swap' && (
+              <div className="px-1">
+                <SwapCard />
+              </div>
+            )}
+
+            {swapMode === 'bridge' && (
+              <div className="">
+
+            {/* ── DestChainModal ─────────────────────────────────────── */}
+            {destChainModalOpen && (
+              <div className="fixed inset-0 z-[600] flex items-end sm:items-center justify-center" onClick={() => setDestChainModalOpen(false)}>
+                <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
+                <div
+                  className="relative w-full max-w-[440px] rounded-t-3xl sm:rounded-3xl overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(160deg,#13111c 0%,#0f0d18 100%)',
+                    border: '1px solid rgba(6,182,212,0.18)',
+                    boxShadow: '0 -8px 60px rgba(6,182,212,0.12), 0 0 0 1px rgba(255,255,255,0.04)',
+                  }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="flex justify-center pt-3 pb-1 sm:hidden">
+                    <div className="w-10 h-1 rounded-full bg-white/20" />
+                  </div>
+                  <div className="flex items-center justify-between px-5 pt-4 pb-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div>
+                      <h3 className="font-extrabold text-[15px] text-white tracking-tight">Select destination</h3>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{BRIDGE_CHAINS.length} CCTP v2 chains</p>
+                    </div>
+                    <button onClick={() => setDestChainModalOpen(false)} className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors">
+                      <X className="w-4 h-4 text-white/50" />
+                    </button>
+                  </div>
+                  <div className="px-4 pt-3 pb-2">
+                    <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl transition-colors" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.09)' }}>
+                      <Search className="w-4 h-4 shrink-0" style={{ color: 'rgba(255,255,255,0.35)' }} />
+                      <input
+                        value={bridgeDestSearch}
+                        onChange={e => setBridgeDestSearch(e.target.value)}
+                        placeholder="Search network…"
+                        className="flex-1 bg-transparent text-[13px] text-white placeholder-white/30 focus:outline-none min-w-0"
+                        autoFocus
+                      />
+                      {bridgeDestSearch && <button onClick={() => setBridgeDestSearch('')} className="text-white/30 hover:text-white/60"><X className="w-3.5 h-3.5" /></button>}
+                    </div>
+                  </div>
+                  <div className="px-2 pb-4 max-h-[380px] overflow-y-auto">
+                    {BRIDGE_CHAINS.filter(c =>
+                      !bridgeDestSearch ||
+                      c.label.toLowerCase().includes(bridgeDestSearch.toLowerCase()) ||
+                      String(c.chainId).includes(bridgeDestSearch)
+                    ).map(c => {
+                      const isSel = bridgeDest === c.id;
+                      return (
+                        <button
+                          key={c.id}
+                          onClick={() => { setBridgeDest(c.id); setBridgeDestSearch(''); setDestChainModalOpen(false); if (bridgePhase === 'done') setBridgePhase('idle'); }}
+                          className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-all"
+                          style={{
+                            background: isSel ? 'rgba(6,182,212,0.1)' : 'transparent',
+                            border: isSel ? '1px solid rgba(6,182,212,0.3)' : '1px solid transparent',
+                          }}
+                          onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; }}
+                          onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                        >
+                          <span className="text-[22px] leading-none shrink-0">{c.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[14px] font-bold text-white">{c.label}</span>
+                              {c.fast && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(52,211,153,0.15)', color: '#34d399' }}>FAST</span>}
+                            </div>
+                            <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.35)' }}>Chain {c.chainId}</p>
+                          </div>
+                          {isSel && <div className="w-2 h-2 rounded-full shrink-0" style={{ background: '#06b6d4', boxShadow: '0 0 6px rgba(6,182,212,0.8)' }} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Bridge card ─────────────────────────────────────────── */}
+            <div className="max-w-[440px] mx-auto">
+              <div className="rounded-3xl overflow-hidden" style={{
+                background: 'linear-gradient(160deg,#0a0e18 0%,#0d1120 100%)',
+                border: '1px solid rgba(6,182,212,0.15)',
+              }}>
+
+                {/* Card header */}
+                <div className="flex items-center justify-between px-5 pt-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div>
+                    <h2 className="text-[17px] font-extrabold text-white tracking-tight">Bridge</h2>
+                    <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>Circle CCTP v2 · gas paid in USDC</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold" style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.2)' }}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />CCTP v2
+                    </span>
+                  </div>
+                </div>
+
+                {/* FROM */}
+                <div className="p-4">
+                  <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.4)' }}>Send (Arc Mainnet)</span>
+                      {walletAddress && walletUsdcBalance !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                            {(Number(walletUsdcBalance) / 1e6).toFixed(2)} USDC
+                          </span>
+                          <button
+                            onClick={() => setBridgeAmount((Number(walletUsdcBalance) / 1e6).toFixed(6))}
+                            className="text-[10px] font-black px-2 py-0.5 rounded-lg transition-all"
+                            style={{ background: 'rgba(6,182,212,0.15)', color: '#67e8f9', border: '1px solid rgba(6,182,212,0.25)' }}
+                          >MAX</button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <input
+                          type="number" min="0" step="any"
+                          value={bridgeAmount}
+                          onChange={e => { setBridgeAmount(e.target.value); if (bridgePhase === 'done') setBridgePhase('idle'); }}
+                          placeholder="0.00"
+                          className="w-full bg-transparent text-[36px] font-black text-white placeholder-white/15 focus:outline-none tabular leading-tight"
+                        />
+                        <p className="text-[12px] mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                          {bridgeAmount && parseFloat(bridgeAmount) > 0 ? `$${parseFloat(bridgeAmount).toFixed(2)}` : ' '}
+                        </p>
+                      </div>
+                      {/* Source token pill */}
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-2xl shrink-0"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-white font-black text-[10px]" style={{ background: '#2775CA' }}>US</div>
+                        <span className="text-[14px] font-bold text-white">USDC</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Arrow divider */}
+                <div className="flex justify-center -mt-1 -mb-1 relative z-10">
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center"
+                    style={{
+                      background: 'linear-gradient(135deg,#0c1a2e,#0e2240)',
+                      border: '2px solid rgba(6,182,212,0.35)',
+                      boxShadow: '0 0 16px rgba(6,182,212,0.25)',
+                    }}>
+                    <ArrowRight className="w-4 h-4" style={{ color: '#67e8f9' }} />
+                  </div>
+                </div>
+
+                {/* TO */}
+                <div className="p-4">
+                  <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.4)' }}>Receive</span>
+                      <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>1:1 · no slippage</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[36px] font-black tabular leading-tight" style={{ color: bridgeAmount && parseFloat(bridgeAmount) > 0 ? '#34d399' : 'rgba(255,255,255,0.15)' }}>
+                          {bridgeAmount && parseFloat(bridgeAmount) > 0 ? parseFloat(bridgeAmount).toFixed(2) : '0'}
+                        </p>
+                        <p className="text-[12px] mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>USDC on {destChain.label}</p>
+                      </div>
+                      {/* Dest chain selector button */}
+                      <button
+                        onClick={() => setDestChainModalOpen(true)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-2xl shrink-0 transition-all hover:scale-105 active:scale-95"
+                        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff' }}
+                      >
+                        <span className="text-[18px] leading-none">{destChain.icon}</span>
+                        <div className="text-left">
+                          <p className="text-[13px] font-bold text-white leading-tight">{destChain.label}</p>
+                          {destChain.fast && <p className="text-[9px]" style={{ color: '#34d399' }}>⚡ Fast</p>}
+                        </div>
+                        <ChevronDown className="w-3.5 h-3.5 opacity-40" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Route summary row */}
+                <div className="mx-4 mb-3 px-4 py-2.5 rounded-2xl flex items-center justify-between"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                    Arc → {destChain.label} · Circle CCTP v2
+                  </span>
+                  <span className={`text-[11px] font-semibold ${destChain.fast ? '' : ''}`}
+                    style={{ color: destChain.fast ? '#34d399' : 'rgba(255,255,255,0.5)' }}>
+                    {destChain.fast ? '⚡ ~8–20 s' : '~2–5 min'}
+                  </span>
+                </div>
+
+                {/* Step tracker */}
+                {bridgeSteps.length > 0 && (
+                  <div className="mx-4 mb-3 rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="px-4 py-2.5 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.03)' }}>
+                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>CCTP Steps</span>
+                      {bridgePhase === 'bridging' && <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: '#67e8f9' }} />}
+                      {bridgePhase === 'done'     && <CheckCircle2 className="w-3.5 h-3.5" style={{ color: '#34d399' }} />}
+                      {bridgePhase === 'error'    && <AlertTriangle className="w-3.5 h-3.5 text-red-400" />}
+                    </div>
+                    {bridgeSteps.map((s, idx) => {
+                      const LABELS: Record<string, string> = { approve: 'Approve USDC', burn: 'Burn on Arc', fetchAttestation: 'Circle Attestation', mint: 'Mint on Destination' };
+                      const isActive  = s.state === 'active';
+                      const isSuccess = s.state === 'success';
+                      const isError   = s.state === 'error';
+                      return (
+                        <div key={s.name} className="px-4 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: isActive ? 'rgba(6,182,212,0.05)' : 'transparent' }}>
+                          <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-extrabold"
+                            style={{
+                              background: isSuccess ? 'rgba(52,211,153,0.15)' : isError ? 'rgba(239,68,68,0.15)' : isActive ? 'rgba(6,182,212,0.15)' : 'rgba(255,255,255,0.06)',
+                              color: isSuccess ? '#34d399' : isError ? '#f87171' : isActive ? '#67e8f9' : 'rgba(255,255,255,0.3)',
+                              border: `1px solid ${isSuccess ? 'rgba(52,211,153,0.3)' : isError ? 'rgba(239,68,68,0.3)' : isActive ? 'rgba(6,182,212,0.3)' : 'rgba(255,255,255,0.08)'}`,
+                            }}>
+                            {isSuccess ? <CheckCircle2 className="w-3.5 h-3.5" /> : isActive ? <Loader2 className="w-3 h-3 animate-spin" /> : isError ? <AlertTriangle className="w-3 h-3" /> : <span>{idx + 1}</span>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] font-semibold" style={{ color: isSuccess ? '#34d399' : isError ? '#f87171' : isActive ? '#67e8f9' : 'rgba(255,255,255,0.4)' }}>
+                              {LABELS[s.name] ?? s.name}
+                            </p>
+                            {s.txHash && (
+                              <a href={s.explorerUrl ?? buildTxExplorerUrl(CHAIN_ID, s.txHash)} target="_blank" rel="noopener noreferrer"
+                                className="flex items-center gap-1 font-mono text-[10px] hover:opacity-80" style={{ color: '#a5b4fc' }}>
+                                {s.txHash.slice(0, 16)}… <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                          </div>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+                            style={{
+                              background: isSuccess ? 'rgba(52,211,153,0.1)' : isActive ? 'rgba(6,182,212,0.1)' : isError ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.05)',
+                              color: isSuccess ? '#34d399' : isActive ? '#67e8f9' : isError ? '#f87171' : 'rgba(255,255,255,0.3)',
+                              border: `1px solid ${isSuccess ? 'rgba(52,211,153,0.2)' : isActive ? 'rgba(6,182,212,0.2)' : isError ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                            }}>
+                            {s.state.toUpperCase()}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Error */}
+                {bridgePhase === 'error' && (
+                  <div className="mx-4 mb-3 px-4 py-3 rounded-2xl space-y-1.5"
+                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                      <p className="text-[12px] font-semibold text-red-400">Bridge failed</p>
+                    </div>
+                    <p className="text-[11px]" style={{ color: 'rgba(248,113,113,0.8)' }}>{bridgeError}</p>
+                    {lastBridgeResult && (
+                      <button onClick={() => void handleRetryBridge()} className="flex items-center gap-1.5 text-[11px] font-bold" style={{ color: '#67e8f9' }}>
+                        <RefreshCw className="w-3 h-3" /> Retry from failed step
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Success */}
+                {bridgePhase === 'done' && (
+                  <div className="mx-4 mb-3 px-4 py-3 rounded-2xl space-y-1.5"
+                    style={{ background: 'rgba(52,211,153,0.07)', border: '1px solid rgba(52,211,153,0.18)' }}>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: '#34d399' }} />
+                      <p className="text-[12px] font-extrabold" style={{ color: '#34d399' }}>Bridge complete — all 4 steps confirmed</p>
+                    </div>
+                    {bridgeTxHash && (
+                      <a href={buildTxExplorerUrl(CHAIN_ID, bridgeTxHash)} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 font-mono text-[11px] hover:opacity-80" style={{ color: '#a5b4fc' }}>
+                        Burn tx: {bridgeTxHash.slice(0, 20)}… <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                    <p className="text-[11px]" style={{ color: 'rgba(52,211,153,0.7)' }}>
+                      USDC minted on <span className="font-semibold text-[#34d399]">{destChain.label}</span>. Check your wallet.
+                    </p>
+                  </div>
+                )}
+
+                {/* Wrong chain */}
+                {walletAddress && walletChainId !== CHAIN_ID && (
+                  <div className="mx-4 mb-3 px-4 py-3 rounded-2xl flex items-center justify-between gap-3"
+                    style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                    <span className="text-[12px] font-semibold" style={{ color: '#fcd34d' }}>Switch to Arc Mainnet (Chain 5042)</span>
+                    <button onClick={() => void switchChainAsync({ chainId: CHAIN_ID })}
+                      className="shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-colors"
+                      style={{ background: '#f59e0b', color: '#1c1917' }}>
+                      Switch
+                    </button>
+                  </div>
+                )}
+
+                {/* CTA */}
+                <div className="px-4 pb-5">
+                  {!walletAddress ? (
+                    <div className="flex justify-center py-1"><ConnectKitButton label="Connect Wallet to Bridge" /></div>
+                  ) : (
+                    <button
+                      onClick={() => void handleBridge()}
+                      disabled={!bridgeAmount || parseFloat(bridgeAmount || '0') <= 0 || bridgePhase === 'bridging' || walletChainId !== CHAIN_ID}
+                      className="w-full min-h-[52px] rounded-2xl text-[15px] font-extrabold tracking-tight disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 transition-all"
+                      style={{
+                        background: (!bridgeAmount || parseFloat(bridgeAmount || '0') <= 0)
+                          ? 'rgba(6,182,212,0.15)'
+                          : 'linear-gradient(135deg,#06b6d4 0%,#3b82f6 50%,#6366f1 100%)',
+                        color: '#fff',
+                        boxShadow: bridgeAmount && parseFloat(bridgeAmount) > 0 ? '0 4px 24px rgba(6,182,212,0.35)' : 'none',
+                      }}
+                    >
+                      {bridgePhase === 'bridging' ? <><Loader2 className="w-5 h-5 animate-spin" /> Bridging…</> : <><GitBranch className="w-5 h-5" /> Initiate Bridge Route</>}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+            </div>
+            )}
           </div>
         )}
 
